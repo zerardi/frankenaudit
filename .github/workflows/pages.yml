@@ -2,9 +2,8 @@
 # Dipakai setelah repo publik zerardi/frankenaudit dibuat + push pertama.
 name: Deploy to GitHub Pages
 
+# manual-only while repo is private; restore push trigger after the repo goes public
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
 
 permissions:
