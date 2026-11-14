@@ -1,0 +1,10 @@
+[profile.default]
+src = "../app/samples"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc = "/home/hatch/workspace/bb-tools/bin/solc"
+evm_version = "london"
+remappings = [
+  "trapvault/=../app/samples/"
+]
