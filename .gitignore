@@ -1,0 +1,30 @@
+# Dependencies & build output
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+out/
+cache/
+*.log
+
+# Secrets — NEVER commit
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+credentials*.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# NOTE: .kiro/ is intentionally NOT ignored — the Kiroween submission
+# requires /.kiro in the public repo root.
+.venv-slither/
+slither-*.json
