@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FrankenAudit — Asisten Audit Smart Contract</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>FrankenAudit</h1>
+  <p>Asisten audit smart-contract open-source untuk pemburu bug bounty.
+     Slither + Kiro agent crew + lookup on-chain read-only.</p>
+  <p class="disclaimer"><strong>Perhatian:</strong> hasil di sini adalah
+     <em>kandidat</em>, bukan verdict. Setiap kandidat butuh verifikasi
+     (data live + PoC di fork) oleh wasit manusia sebelum dianggap temuan.</p>
+</header>
+
+<main>
+  <section id="input-panel">
+    <h2>1. Pilih kontrak</h2>
+    <label>Kontrak sampel terkurasi
+      <select id="sample-select">
+        <option value="">— pilih sampel —</option>
+      </select>
+    </label>
+    <label>atau tempel alamat kontrak (EVM)
+      <input id="address-input" type="text" placeholder="0x…" spellcheck="false">
+    </label>
+    <label>chain untuk lookup on-chain (read-only eth_getCode)
+      <select id="chain-select">
+        <option value="https://bsc-dataseed.binance.org/">BNB Chain (bsc-dataseed)</option>
+        <option value="https://eth.llamarpc.com">Ethereum (llamarpc)</option>
+        <option value="https://mainnet.zkevm.cronos.org">Cronos zkEVM (mainnet.zkevm.cronos.org)</option>
+      </select>
+    </label>
+    <label>atau unggah file .sol
+      <input id="file-input" type="file" accept=".sol">
+    </label>
+    <button id="run-btn">Jalankan analisis</button>
+    <pre id="source-view" class="source-view">// source kontrak tampil di sini</pre>
+  </section>
+
+  <section id="report-panel">
+    <h2>2. Laporan kandidat</h2>
+    <div id="report">Belum ada analisis. Pilih kontrak lalu jalankan.</div>
+  </section>
+</main>
+
+<footer>
+  <p>FrankenAudit — proyek Kiroween 2026 (kategori Frankenstein). MIT License.
+     Tidak pernah menyentuh wallet, private key, atau mainnet.</p>
+</footer>
+
+<script src="pipeline.js"></script>
+<script src="report.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
