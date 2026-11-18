@@ -84,9 +84,69 @@
       "function": "setFeePaused",
       "severityGuess": "Medium",
       "why": "Fungsi setFeePaused dikomentari utuh — tidak ada jalur yang bisa mengubah feeBps (kelas AMP-02 Amply, setDebtCeiling dikomentari utuh)."
+    },
+    {
+      "detector": "oracle-passthrough-no-staleness",
+      "function": "getVaultPrice",
+      "severityGuess": "Low",
+      "why": "latestAnswer() dipakai apa adanya; hanya cek price > 0 (bukan staleness) — bila feed macet, harga basi tetap dipakai (kelas AMP-06 Amply; bentuk persis AaveOracle upstream)."
+    },
+    {
+      "detector": "oracle-passthrough-no-staleness",
+      "function": "collateralValue",
+      "severityGuess": "Low",
+      "why": "IPriceOracleGetter.getAssetPrice dipakai langsung untuk valuasi agunan tanpa cek umur harga (bentuk AMP-06 di sisi konsumen — ValidationLogic.validateBorrow Amply)."
+    },
+    {
+      "detector": "vacuous-identity-check",
+      "function": "setTraderReferralCode",
+      "severityGuess": "Medium",
+      "why": "onlyHandler (pemanggil = router, bukan trader) tapi memeriksa `affiliate == msg.sender` seolah msg.sender adalah trader — cek vacuous, self-referral lolos (kelas FUL-REF-01 Fulcrom ReferralManager, sesi BB sore 15 Nov 2026)."
+    },
+    {
+      "detector": "dead-config-storage",
+      "function": "payFee",
+      "severityGuess": "Low",
+      "why": "feeBps ditulis di payFee (feeBps = 0) + setFeeCommentProse (feeBps = bps) tapi tidak pernah dibaca — vault tidak pernah memakai fee; dead config yang sudah ada di fixture sejak awal, baru tertangkap detektor ke-17."
+    },
+    {
+      "detector": "dead-config-storage",
+      "function": "setDeadSwitch",
+      "severityGuess": "Low",
+      "why": "configDead ditulis di setter tapi tidak pernah dibaca — governance mengira config berlaku padahal tidak ada logika yang memakainya (kelas R-02 Fulcrom VaultPriceFeedV2 favorPrimaryPrice, sesi BB sore 15 Nov 2026)."
+    },
+    {
+      "detector": "dead-config-storage",
+      "function": "setDeadThreshold",
+      "severityGuess": "Low",
+      "why": "thresholdDead ditulis di setter tapi tidak pernah dibaca — bentuk kedua kelas R-02 (Fulcrom spreadThresholdBasisPoints)."
+    },
+    {
+      "detector": "permissionless-dispatcher",
+      "function": "dispatch",
+      "severityGuess": "Medium",
+      "why": "dispatch(bytes) external tanpa guard mengeksekusi to.call{value: call.value}(call.data) dengan target+data dari calldata yang di-decode — kelas H3 Hyperbridge CallDispatcher.dispatch (sesi BB sore 17 Nov 2026, wasit Medium, PoC-verified Foundry 4/4)."
+    },
+    {
+      "detector": "full-balance-sweep",
+      "function": "sweepEscrow",
+      "severityGuess": "Low",
+      "why": "uint256 balance = IERC20(token).balanceOf(dispatcher) lalu transfer(address(this), balance) — sweep sebesar saldo penuh kontrak perantara, bukan jumlah deklarasi — kelas H3b Hyperbridge IntentGatewayV2.placeOrder (sesi BB sore 17 Nov 2026, wasit Low)."
+    },
+    {
+      "detector": "permissionless-value-send",
+      "function": "drainValue",
+      "severityGuess": "Medium",
+      "why": "drainValue(to, amount) external tanpa guard: (bool ok,) = to.call{value: amount}(\"\") dengan return dicek — lolos unchecked-call (return ditangkap) dan permissionless-dispatcher (data kosong); kelas F8 review Kiro 17 Nov 2026."
+    },
+    {
+      "detector": "permissionless-value-send",
+      "function": "payFee",
+      "severityGuess": "Medium",
+      "why": "payFee(to, amount) external tanpa guard: to.call{value: amount}(\"\") ke alamat pilihan caller — drain ETH yang sama seperti BUG 21 (sudah ter-flag missing-access-control + unchecked-call)."
     }
   ],
-  "expectedTotal": 14,
+  "expectedTotal": 24,
   "file": "trap-vault.sol",
   "negativeControls": [
     {
@@ -138,6 +198,61 @@
       "function": "setFeeActive",
       "pattern": "commented-out-function",
       "why": "Komentar prosa yang menyebut signature (lihat function setFeeActive(uint256) untuk ...) — bukan definisi fungsi yang dikomentari."
+    },
+    {
+      "function": "getVaultPriceSafe",
+      "pattern": "oracle-passthrough-no-staleness",
+      "why": "require(block.timestamp - updatedAt < 3600) sebelum harga dipakai — umur data dicek."
+    },
+    {
+      "function": "setTraderReferralCodeByUser",
+      "pattern": "vacuous-identity-check",
+      "why": "Jalur pemanggilan langsung oleh trader — cek `affiliate != msg.sender` bermakna karena msg.sender memang trader (bentuk Fulcrom ReferralManager.setTraderReferralCodeByUser)."
+    },
+    {
+      "function": "setLiveCounter",
+      "pattern": "dead-config-storage",
+      "why": "liveCounter ditulis di setter DAN dibaca di getLiveCounter — config hidup, bukan dead config."
+    },
+    {
+      "function": "dispatchGuarded",
+      "pattern": "permissionless-dispatcher",
+      "why": "Dispatcher yang sama tapi ber-modifier onlyHandler — hanya gateway yang boleh memanggil."
+    },
+    {
+      "function": "payFee",
+      "pattern": "permissionless-dispatcher",
+      "why": "to.call{value: amount}(\"\") — data kosong, hanya kirim ETH, bukan arbitrary call (cakupan v1 detektor)."
+    },
+    {
+      "function": "sweepDeclared",
+      "pattern": "full-balance-sweep",
+      "why": "Transfer memakai jumlah yang dideklarasikan (parameter amount), bukan saldo penuh perantara."
+    },
+    {
+      "function": "rescueOwnBalance",
+      "pattern": "full-balance-sweep",
+      "why": "Sweep saldo SENDIRI (balanceOf(address(this))) ke owner — rescue by-design, dikecualikan."
+    },
+    {
+      "function": "withdrawSelf",
+      "pattern": "permissionless-value-send",
+      "why": "Kirim ETH ke msg.sender sendiri (withdraw) — penerima dikecualikan."
+    },
+    {
+      "function": "withdrawToOwner",
+      "pattern": "permissionless-value-send",
+      "why": "Kirim ETH ke owner (payout sah) — penerima dikecualikan."
+    },
+    {
+      "function": "payToken",
+      "pattern": "permissionless-value-send",
+      "why": "Transfer TOKEN dua argumen (to, amount) — bukan kirim ETH satu argumen."
+    },
+    {
+      "function": "dispatch",
+      "pattern": "permissionless-value-send",
+      "why": "dispatch punya data arbitrer (call.data) — ranah permissionless-dispatcher, bukan value-send."
     }
   ],
   "note": "Ground truth manusia untuk pengujian pipeline M2. Kandidat di sini adalah yang DIHARAPKAN dari pipeline (detector, fungsi). Severity = tebakan awal, bukan verdict — verdict butuh PoC fork oleh wasit.",

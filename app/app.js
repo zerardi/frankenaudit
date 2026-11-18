@@ -9,6 +9,54 @@ function isValidAddress(a) {
   return /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 }
 
+// Baseline upstream (wiring UI, sesi 00:38 WIB 2026-11-15): peta
+// basename -> source, dibangun dari file .sol yang diunggah user.
+// Dipakai runPipeline untuk detektor enum-semantic-shift + klasifikasi
+// upstream-diff (commented-out-*, oracle-passthrough). Tanpa baseline,
+// kandidat-kandidat itu tetap muncul tapi tanpa anotasi upstream.
+let baselineMap = null; // null = belum diunggah
+let baselineCollisions = [];
+
+function renderBaselineStatus() {
+  const el = $("baseline-status");
+  const clearBtn = $("baseline-clear-btn");
+  if (!baselineMap) {
+    el.textContent = "Baseline: belum diunggah — kandidat commented-out / "
+      + "enum / oracle tampil tanpa klasifikasi upstream-diff.";
+    clearBtn.hidden = true;
+    return;
+  }
+  const n = Object.keys(baselineMap).length;
+  el.textContent = "Baseline: " + n + " file upstream dimuat"
+    + (baselineCollisions.length
+      ? " (tabrakan basename diabaikan: " + baselineCollisions.join(", ") + ")"
+      : "")
+    + " — kandidat commented-out / enum / oracle diklasifikasi "
+    + "live-identical / live-modified / live-divergent / absent.";
+  clearBtn.hidden = false;
+}
+
+$("baseline-input").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  if (!files.length) return;
+  const read = files.map(async (f) => ({ name: f.name, text: await f.text() }));
+  const loaded = await Promise.all(read);
+  const built = buildBaselineMap(loaded);
+  baselineMap = built.map;
+  baselineCollisions = built.collisions;
+  renderBaselineStatus();
+  $("report").innerHTML = "<p>Baseline dimuat (" + Object.keys(baselineMap).length
+    + " file). Klik “Jalankan analisis” untuk pass dengan klasifikasi upstream-diff.</p>";
+});
+
+$("baseline-clear-btn").addEventListener("click", () => {
+  baselineMap = null;
+  baselineCollisions = [];
+  $("baseline-input").value = "";
+  renderBaselineStatus();
+  $("report").innerHTML = "<p>Baseline dihapus. Pass berikutnya jalan tanpa klasifikasi upstream-diff.</p>";
+});
+
 $("run-btn").addEventListener("click", () => {
   const source = $("source-view").textContent || "";
   const fileName = $("sample-select").value || "input.sol";
@@ -17,7 +65,8 @@ $("run-btn").addEventListener("click", () => {
       + "file .sol, atau tempel alamat kontrak dulu.</p>";
     return;
   }
-  const result = runPipeline(source, fileName);
+  const result = runPipeline(source, fileName,
+    baselineMap ? { baseline: baselineMap } : undefined);
   $("report").innerHTML = renderReport(result);
 });
 
@@ -59,6 +108,16 @@ $("address-input").addEventListener("change", async (e) => {
     $("report").innerHTML = "<p>Lookup on-chain gagal (" + err.message + "). "
       + "Cek koneksi / RPC, atau unggah file .sol langsung.</p>";
   }
+});
+
+// M2.5 Intake & Gate (sesi 04:38 WIB 2026-11-17): nilai program yang dikenal
+// (skor + vonis gerbang + routing) dan render kartunya. Mode gerbang dipilih
+// user; default strict (v10). Vonis KONFIRMASI = berhenti, JANGAN hunting
+// target itu sampai manusia mengonfirmasi; TOLAK = blacklist.
+$("intake-run-btn").addEventListener("click", () => {
+  const mode = ($("intake-mode-select") && $("intake-mode-select").value) || "strict";
+  const run = intakeRun(knownPrograms(), [], { mode });
+  $("intake-report").innerHTML = renderIntakeReport(run);
 });
 
 // Muat daftar sampel (M2 — bila samples/index.json belum ada, biarkan kosong).

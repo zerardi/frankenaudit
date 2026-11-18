@@ -10,3 +10,11 @@ button { padding: .5rem 1rem; margin: .5rem 0; cursor: pointer; }
 .candidate h3 { margin-top: 0; }
 .src { color: #666; font-size: .85rem; }
 .closing { background: #f0f4ff; border: 1px solid #9db8ff; padding: .8rem; margin-top: 1rem; }
+.baseline-status { color: #444; font-size: .9rem; margin: .2rem 0; }
+.intake-card { border: 1px solid #bbb; border-radius: 6px; padding: .8rem; margin: .8rem 0; }
+.intake-card h3 { margin-top: 0; }
+.intake-score { border-collapse: collapse; font-size: .9rem; }
+.intake-score th, .intake-score td { border: 1px solid #ddd; padding: .2rem .5rem; text-align: left; }
+.verdict-layak { color: #0a6b1f; }
+.verdict-konfirmasi { color: #8a6d00; }
+.verdict-tolak { color: #a00; }
