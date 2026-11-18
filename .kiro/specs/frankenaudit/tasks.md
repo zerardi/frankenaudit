@@ -36,6 +36,11 @@ Checklist eksekusi (centang `[x]` saat selesai + catat tanggal di STATUS.md).
       (divisi tanpa guard, ecrecover tanpa cek nol), + noise pada
       negative control withdrawSafe (reentrancy-events/low-level-calls).
       `normalizeSlither()` atas JSON asli → 16 kandidat SL-001..016 benar.
+- [x] Wiring baseline ke UI app (sesi 00:38 WIB 15 Nov 2026): upload
+      multi-file `.sol` upstream → `buildBaselineMap()` (first-wins per
+      basename, tabrakan dicatat) → `runPipeline(..., {baseline})`;
+      kartu kandidat menampilkan baris Upstream-diff, penutup menampilkan
+      status baseline; test 54/54 PASS (9 baru).
 - [ ] Lookup on-chain read-only: `eth_getCode` via RPC publik untuk
       alamat yang ditempel (opsional, laporan tetap jalan bila gagal)
       (fetchBytecodeReadOnly() sudah ada; wiring UI alamat → lookup

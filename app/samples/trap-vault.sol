@@ -5,12 +5,41 @@ pragma solidity ^0.8.20;
 /// @notice Sengaja berisi bug nyata + pola aman (negative control).
 ///         Dipakai untuk demo juri & pengujian pipeline. JANGAN deploy
 ///         ke mainnet, JANGAN dipakai sebagai referensi kode aman.
-/// @dev Ground truth: trap-vault.analysis.json (14 kandidat diharapkan,
-///      10 negative control yang TIDAK boleh memicu kandidat).
+/// @dev Ground truth: trap-vault.analysis.json (24 kandidat diharapkan,
+///      21 negative control yang TIDAK boleh memicu kandidat).
+/// @notice Interface minimal feed harga (Chainlink-style) + oracle getter
+///         (Aave-style) — dipakai fixture detektor oracle-passthrough.
+interface IPriceFeed {
+    function latestAnswer() external view returns (int256);
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80);
+}
+interface IPriceOracleGetter {
+    function getAssetPrice(address asset) external view returns (uint256);
+}
+interface IERC20 {
+    function balanceOf(address account) external view returns (uint256);
+    function transfer(address to, uint256 amount) external returns (bool);
+}
+// Panggilan arbitrer ala Hyperbridge ICallDispatcher — dipakai fixture
+// detektor permissionless-dispatcher (BUG 19) + kontrol K.
+struct Call {
+    address to;
+    uint256 value;
+    bytes data;
+}
+
 contract TrapVault {
     mapping(address => uint256) public balances;
     mapping(address => uint256) public shares;
     mapping(address => uint256) public nonces;
+    mapping(bytes32 => address) public codeOwners;
+    mapping(address => bytes32) public traderReferralCodes;
+    address public handler;
+
+    modifier onlyHandler() {
+        require(msg.sender == handler, "not handler");
+        _;
+    }
     uint256 public totalShares;
     address public owner;
     uint256 public feeBps;
@@ -21,6 +50,7 @@ contract TrapVault {
 
     constructor() {
         owner = msg.sender;
+        handler = msg.sender;
     }
 
     function deposit() external payable {
@@ -195,4 +225,190 @@ contract TrapVault {
     // (lihat function setFeeActive(uint256) untuk versi yang dimatikan) —
     // BUKAN definisi fungsi yang dikomentari, jadi detektor
     // commented-out-function TIDAK boleh memicu di sini.
+
+    // BUG 10 — ORACLE PASSTHROUGH TANPA STALENESS CHECK: harga dari
+    // feed dipakai apa adanya; hanya cek price > 0 (BUKAN cek staleness)
+    // — bila feed macet / updater berhenti, harga basi tetap dipakai
+    // untuk valuasi (kelas AMP-06 Amply — AmplyOracle meneruskan harga
+    // tanpa validasi umur data, sama seperti AaveOracle upstream
+    // v1.19.4 yang juga hanya cek price > 0).
+    function getVaultPrice() external view returns (uint256) {
+        int256 price = IPriceFeed(oracle).latestAnswer();
+        require(price > 0, "bad price");
+        return uint256(price);
+    }
+
+    // BUG 11 — KONSUMEN ORACLE TANPA STALENESS CHECK: getAssetPrice
+    // dipakai langsung untuk valuasi agunan tanpa cek umur harga
+    // (bentuk AMP-06 di sisi konsumen — ValidationLogic.validateBorrow
+    // Amply memanggil IPriceOracleGetter.getAssetPrice tanpa guard).
+    function collateralValue(address asset, uint256 amount) external view returns (uint256) {
+        uint256 price = IPriceOracleGetter(oracle).getAssetPrice(asset);
+        return amount * price;
+    }
+
+    // NEGATIVE CONTROL H — harga dari feed yang sama, tapi umur data
+    // dicek (block.timestamp - updatedAt < 1 jam) sebelum dipakai.
+    // Detektor oracle-passthrough TIDAK boleh memicu di sini.
+    function getVaultPriceSafe() external view returns (uint256) {
+        (, int256 price, , uint256 updatedAt, ) = IPriceFeed(oracle).latestRoundData();
+        require(block.timestamp - updatedAt < 3600, "old price");
+        require(price > 0, "bad price");
+        return uint256(price);
+    }
+
+    // BUG 17 — VACUOUS IDENTITY CHECK: fungsi ini HANYA dipanggil
+    // kontrak perantara (onlyHandler — pemanggil = router, bukan trader)
+    // tapi memeriksa `affiliate == msg.sender` seolah msg.sender adalah
+    // trader — cek itu tidak pernah benar, jadi trader bisa menyetel
+    // kode referral MILIKNYA SENDIRI (self-referral lolos). Kelas
+    // FUL-REF-01 Fulcrom ReferralManager.setTraderReferralCode, sesi BB
+    // sore 15 Nov 2026 (wasit: Medium, fee-avoidance).
+    function setTraderReferralCode(address _trader, bytes32 _code) external onlyHandler {
+        address affiliate = codeOwners[_code];
+        if (affiliate == address(0) || affiliate == msg.sender) return;
+        traderReferralCodes[_trader] = _code;
+    }
+
+    // NEGATIVE CONTROL I — jalur pemanggilan LANGSUNG oleh trader:
+    // cek `affiliate != msg.sender` di sini BERMAKNA (msg.sender memang
+    // trader) — detektor vacuous-identity-check TIDAK boleh memicu.
+    // (Bentuk persis Fulcrom ReferralManager.setTraderReferralCodeByUser.)
+    function setTraderReferralCodeByUser(bytes32 _code) external {
+        address affiliate = codeOwners[_code];
+        require(affiliate != address(0), "code not registered");
+        require(affiliate != msg.sender, "self referral not allowed");
+        traderReferralCodes[msg.sender] = _code;
+    }
+
+    // BUG 18 — DEAD CONFIG: dua variabel config ditulis di setter tapi
+    // tidak pernah dibaca di kontrak ini — governance mengira config
+    // berlaku padahal tidak ada logika yang memakainya. Kelas R-02
+    // Fulcrom VaultPriceFeedV2 (favorPrimaryPrice +
+    // spreadThresholdBasisPoints), sesi BB sore 15 Nov 2026 (wasit:
+    // Low/Info). Setter memakai onlyHandler supaya tidak memicu
+    // missing-access-control (bukan bagian dari pola ini).
+    bool public configDead;
+    uint256 public thresholdDead;
+
+    function setDeadSwitch(bool _v) external onlyHandler {
+        configDead = _v;
+    }
+
+    function setDeadThreshold(uint256 _v) external onlyHandler {
+        thresholdDead = _v;
+    }
+
+    // NEGATIVE CONTROL J — config HIDUP: ditulis di setter DAN dibaca
+    // di fungsi view — detektor dead-config-storage TIDAK boleh memicu.
+    uint256 public liveCounter;
+
+    function setLiveCounter(uint256 _v) external onlyHandler {
+        liveCounter = _v;
+    }
+
+    function getLiveCounter() external view returns (uint256) {
+        return liveCounter + 1;
+    }
+
+    // Pembaca registry referral (bentuk nyata Fulcrom): kode referral
+    // trader dibaca di sini — traderReferralCodes BUKAN dead config
+    // (ditulis di dua setter, dibaca di getter ini).
+    function getTraderReferralCode(address _trader) external view returns (bytes32) {
+        return traderReferralCodes[_trader];
+    }
+
+    error NotContract(address target);
+    error CallFailed(address target, bytes result);
+    error InsufficientBalance();
+
+    // BUG 19 — PERMISSIONLESS DISPATCHER: siapa pun boleh memanggil
+    // eksekutor ini dengan call arbitrer; kontrak menampung ETH/token
+    // user sementara (predispatch). Kelas H3 Hyperbridge
+    // (CallDispatcher.dispatch, sesi BB sore 17 Nov 2026 — wasit Medium,
+    // PoC-verified Foundry 4/4: residu 200 USDC dikuras via dispatch
+    // langsung). Target + data berasal dari calldata yang di-decode.
+    function dispatch(bytes calldata encoded) external {
+        Call[] memory calls = abi.decode(encoded, (Call[]));
+        uint256 callsLen = calls.length;
+        for (uint256 i = 0; i < callsLen; ++i) {
+            Call memory call = calls[i];
+            uint32 size;
+            address to = call.to;
+            assembly {
+                size := extcodesize(to);
+            }
+            if (size == 0) {
+                revert NotContract(to);
+            }
+            (bool success, bytes memory result) = to.call{value: call.value}(call.data);
+            if (!success) revert CallFailed(to, result);
+        }
+    }
+
+    // NEGATIVE CONTROL K — dispatcher yang SAMA, tapi hanya gateway
+    // yang boleh memanggil (modifier onlyHandler) — detektor
+    // permissionless-dispatcher TIDAK boleh memicu di sini.
+    function dispatchGuarded(bytes calldata encoded) external onlyHandler {
+        Call[] memory calls = abi.decode(encoded, (Call[]));
+        for (uint256 i = 0; i < calls.length; ++i) {
+            Call memory call = calls[i];
+            (bool success, ) = call.to.call{value: call.value}(call.data);
+            if (!success) revert CallFailed(call.to, "");
+        }
+    }
+
+    // BUG 20 — FULL-BALANCE SWEEP: escrow disapu sebesar saldo penuh
+    // kontrak perantara, bukan jumlah yang dideklarasikan di order —
+    // residu (mis. sisa predispatch) ikut tersapu. Kelas H3b Hyperbridge
+    // (IntentGatewayV2.placeOrder, sesi BB sore 17 Nov 2026 — wasit Low).
+    address public dispatcher;
+
+    function sweepEscrow(address token, uint256 required) external {
+        uint256 balance = IERC20(token).balanceOf(dispatcher);
+        if (balance < required) revert InsufficientBalance();
+        IERC20(token).transfer(address(this), balance);
+    }
+
+    // NEGATIVE CONTROL L — sweep dengan jumlah yang DIDeklarasikan
+    // (parameter amount), bukan saldo penuh — detektor full-balance-sweep
+    // TIDAK boleh memicu di sini.
+    function sweepDeclared(address token, uint256 amount) external {
+        IERC20(token).transfer(address(this), amount);
+    }
+
+    // NEGATIVE CONTROL M — rescue saldo SENDIRI (by-design): saldo
+    // kontrak sendiri disapu ke owner — detektor full-balance-sweep
+    // TIDAK boleh memicu di sini (hanya saldo kontrak perantara yang dihitung).
+    function rescueOwnBalance(address token) external onlyHandler {
+        IERC20(token).transfer(owner, IERC20(token).balanceOf(address(this)));
+    }
+
+    // BUG 21 — PERMISSIONLESS VALUE-SEND: siapa pun bisa mengirim ETH
+    // kontrak ke alamat pilihannya; return dicek (lolos unchecked-call)
+    // dan data kosong (lolos permissionless-dispatcher). Rekomendasi F8
+    // review Kiro detektor 18/19, sesi 20:38 WIB 17 Nov 2026.
+    function drainValue(address to, uint256 amount) external {
+        (bool ok, ) = to.call{value: amount}("");
+        require(ok, "failed");
+    }
+
+    // NEGATIVE CONTROL N — kirim ETH ke PEMILIK (payout sah) dan ke
+    // pemanggil sendiri (withdraw) — detektor permissionless-value-send
+    // TIDAK boleh memicu di sini.
+    function withdrawToOwner(uint256 amount) external {
+        (bool ok, ) = owner.call{value: amount}("");
+        require(ok, "failed");
+    }
+
+    function withdrawSelf(uint256 amount) external {
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok, "failed");
+    }
+
+    // NEGATIVE CONTROL O — transfer TOKEN (dua argumen) bukan kirim ETH —
+    // detektor permissionless-value-send TIDAK boleh memicu di sini.
+    function payToken(address token, address to, uint256 amount) external {
+        IERC20(token).transfer(to, amount);
+    }
 }

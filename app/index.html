@@ -37,6 +37,11 @@
     <label>atau unggah file .sol
       <input id="file-input" type="file" accept=".sol">
     </label>
+    <label>baseline upstream (opsional — untuk fork vs upstream)
+      <input id="baseline-input" type="file" accept=".sol" multiple>
+    </label>
+    <p id="baseline-status" class="baseline-status">Baseline: belum diunggah — kandidat commented-out / enum / oracle tampil tanpa klasifikasi upstream-diff.</p>
+    <button id="baseline-clear-btn" type="button" hidden>Hapus baseline</button>
     <button id="run-btn">Jalankan analisis</button>
     <pre id="source-view" class="source-view">// source kontrak tampil di sini</pre>
   </section>
@@ -44,6 +49,23 @@
   <section id="report-panel">
     <h2>2. Laporan kandidat</h2>
     <div id="report">Belum ada analisis. Pilih kontrak lalu jalankan.</div>
+  </section>
+
+  <section id="intake-panel">
+    <h2>3. Intake &amp; Gate — program bug bounty (M2.5)</h2>
+    <p>Penilaian program kandidat sebelum hunting: skoring 0–100, vonis gerbang
+       (LAYAK / KONFIRMASI / TOLAK), lalu routing ke antrean + detektor yang cocok.
+       Daftar di bawah adalah program yang sudah dikenal (TARGETS.md, per 17 Nov 2026);
+       discovery internet terbuka belum masuk versi ini.</p>
+    <label>Mode gerbang
+      <select id="intake-mode-select">
+        <option value="strict">strict — setiap field butuh konfirmasi manusia (default v10)</option>
+        <option value="auto">auto — program publik-jelas lolos otomatis</option>
+        <option value="paused">paused — nilai saja, tanpa pengujian</option>
+      </select>
+    </label>
+    <button id="intake-run-btn" type="button">Nilai program yang dikenal</button>
+    <div id="intake-report">Belum dinilai. Klik tombol di atas.</div>
   </section>
 </main>
 
@@ -54,6 +76,7 @@
 
 <script src="pipeline.js"></script>
 <script src="report.js"></script>
+<script src="intake.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
