@@ -636,6 +636,49 @@ function knownPrograms() {
       queue: "aktionariat-noted",
       baseline: null,
     },
+    {
+      // Ditambahkan sesi #50, 21 Nov 2026 — pivot #3 pasca-EFP (keputusan
+      // Toufik 20 Nov 2026). Data TERVERIFIKASI sesi ini: halaman program
+      // https://somm.finance/bug-bounty dibaca 21 Nov 2026 (arsip:
+      // hidden_files/work/somm/somm-bug-bounty-program-2026-11-21.txt) +
+      // repo PeggyJV/cellar-contracts terverifikasi via connector GitHub
+      // (publik, Solidity, main @ 07efdfa9, 2026-09-18, 84 stars).
+      // Vonis gerbang: KONFIRMASI (auto + strict) — "izin pengujian
+      // agentic belum terbukti": halaman mengizinkan testnet/simulasi +
+      // PoC minimal, tapi tidak menyebut eksplisit pengujian otomatis/
+      // agentic. JANGAN hunting Somm sebelum konfirmasi manusia (sesi BB /
+      // Toufik) bahwa fork-lokal/simulasi tercakup izin itu. Skor 75,8.
+      id: "selfhosted:somm",
+      name: "Somm Bug Bounty",
+      platform: "Self-hosted",
+      source: "web-search",
+      policy_url: "https://somm.finance/bug-bounty",
+      invites_testing: true, pays_bounty: true,
+      scope_assets: ["Cellar strategy contracts (PeggyJV/cellar-contracts)",
+        "Somm Web App (sommelier-strangelove)",
+        "Cosmos app (sommelier)", "Steward relayer",
+        "Deployed contracts (somm.finance/audits)"],
+      out_of_scope: ["Low-impact UI/UX bugs",
+        "Best-practice suggestions without concrete security impact",
+        "Issues already reported or known to the team",
+        "Vulnerabilities in third-party projects not affecting Somm integrations"],
+      excluded_tests: ["mainnet testing",
+        "on-chain attacks that put real user funds at risk",
+        "front-running", "phishing", "social engineering",
+        "denial-of-service attacks"],
+      freshness: "2026-11-21",
+      status: "candidate",
+      rewardMaxUsd: 50000, responseHealth: 0.7, competition: "unknown",
+      surfaceFit: 0.85, assetNovelty: 0.5,
+      reputationGate: 0, submitFeeUsd: 0,
+      automatedTestingAllowed: "unknown", // halaman: testnet/simulasi + PoC minimal, tanpa kata "otomatis/agentic"
+      loginToSeePolicy: false, privateOrInviteOnly: false, doNotTest: false,
+      securityTxt: false, securityTxtOnly: false,
+      policyHash: "somm-program-2026-11-21",
+      surfaces: ["evm-solidity", "defi-vaults"],
+      queue: "somm",
+      baseline: null,
+    },
   ];
 }
 

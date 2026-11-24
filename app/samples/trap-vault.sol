@@ -5,8 +5,8 @@ pragma solidity ^0.8.20;
 /// @notice Sengaja berisi bug nyata + pola aman (negative control).
 ///         Dipakai untuk demo juri & pengujian pipeline. JANGAN deploy
 ///         ke mainnet, JANGAN dipakai sebagai referensi kode aman.
-/// @dev Ground truth: trap-vault.analysis.json (24 kandidat diharapkan,
-///      21 negative control yang TIDAK boleh memicu kandidat).
+/// @dev Ground truth: trap-vault.analysis.json (30 kandidat diharapkan,
+///      23 negative control yang TIDAK boleh memicu kandidat).
 /// @notice Interface minimal feed harga (Chainlink-style) + oracle getter
 ///         (Aave-style) — dipakai fixture detektor oracle-passthrough.
 interface IPriceFeed {
@@ -410,5 +410,431 @@ contract TrapVault {
     // detektor permissionless-value-send TIDAK boleh memicu di sini.
     function payToken(address token, address to, uint256 amount) external {
         IERC20(token).transfer(to, amount);
+    }
+
+    // BUG 23 — JIT REWARD-ACCRUAL SANDWICH: reward diakru ke pool tanpa
+    // mint share (harga share naik), stake masuk sebelum accrual,
+    // requestUnbond mengunci rate pasca-accrual, fee keluar 0
+    // (unbondingFee default 0) dan tanpa jeda minimum stake ke unbond.
+    // Kelas VENO-C2 YbEth (sesi BB pagi 19 Nov 2026 — Medium wasit,
+    // PoC-verified Foundry 4/4, fix-flip fee 1% membalik profit).
+    uint256 public totalPooledEth;
+    uint256 public totalSupply;
+    uint256 public unbondingFee;
+    uint256 public constant UNBONDING_FEE_DENOMINATOR = 100_000;
+    uint256 public constant EXCHANGE_RATE_PRECISION = 1e18;
+    mapping(string => uint256) public txnHash2Amount;
+    mapping(uint256 => UnbondRequest) public token2UnbondRequest;
+
+    struct UnbondRequest {
+        uint256 shareAmount;
+        uint256 exchangeRate;
+    }
+
+    function convertToShare(uint256 tokenAmount) public view returns (uint256) {
+        require(totalPooledEth > 0, "empty pool");
+        return (tokenAmount * totalSupply) / totalPooledEth;
+    }
+
+    function _mint(address to, uint256 amount) internal {
+        shares[to] += amount;
+        totalSupply += amount;
+    }
+
+    function _burn(address from, uint256 amount) internal {
+        shares[from] -= amount;
+        totalSupply -= amount;
+    }
+
+    function stake(address _receiver) external payable {
+        uint256 shareAmount = convertToShare(msg.value);
+        _mint(_receiver, shareAmount);
+        totalPooledEth += msg.value;
+    }
+
+    function accrueReward(uint256 amount, string calldata txnHash) external onlyHandler {
+        require(txnHash2Amount[txnHash] == 0, "dup");
+        totalPooledEth += amount;
+        txnHash2Amount[txnHash] = amount;
+    }
+
+    function requestUnbond(uint256 _shareAmount) external returns (uint256) {
+        require(totalSupply > 0, "no shares");
+        require(_shareAmount <= shares[msg.sender], "insufficient");
+        uint256 exchangeRate = (totalPooledEth * EXCHANGE_RATE_PRECISION) / totalSupply;
+        token2UnbondRequest[1] = UnbondRequest({shareAmount: _shareAmount, exchangeRate: exchangeRate});
+        totalPooledEth -= (_shareAmount * exchangeRate) / EXCHANGE_RATE_PRECISION;
+        _burn(msg.sender, _shareAmount);
+        return 1;
+    }
+
+    function unbond(uint256 _tokenId) external returns (uint256) {
+        UnbondRequest storage req = token2UnbondRequest[_tokenId];
+        uint256 totalTokenAmount = (req.shareAmount * req.exchangeRate) / EXCHANGE_RATE_PRECISION;
+        uint256 tokenFeeAmount = (totalTokenAmount * unbondingFee) / UNBONDING_FEE_DENOMINATOR;
+        uint256 tokenAmount = totalTokenAmount - tokenFeeAmount;
+        (bool ok, ) = payable(msg.sender).call{value: tokenAmount}("");
+        require(ok, "failed");
+        return tokenAmount;
+    }
+}
+
+// BUG 22 — EMPTY-SUBLIST PROOF ADVANCES HEIGHT (kelas K-1 Hyperbridge):
+// verifikasi sub-daftar bukti dilewati bila kosong, height tetap maju,
+// proof jujur blok yang sama ditolak stale — sensor satu interval
+// komitmen. Bentuk ringkas EcdsaBeefy.verifyParachainHeaderProof +
+// verifyMmrUpdateProof + verify() (sesi BB sore 18 Nov 2026).
+contract ConsensusTrap {
+    struct ConsensusState {
+        uint256 latestHeight;
+        uint256 nextAuthoritySetId;
+    }
+    struct Proof {
+        uint256 blockNumber;
+        bytes32[] parachains;
+        bytes proof;
+    }
+    ConsensusState public consensus;
+
+    function verifyProof(bytes32 root, bytes memory p, bytes32[] memory leaves)
+        internal pure returns (bool)
+    {
+        root; p; leaves;
+        return true;
+    }
+
+    function verifyParachainHeaders(bytes32 headsRoot, Proof memory proof)
+        internal returns (uint256)
+    {
+        uint256 len = proof.parachains.length;
+        bytes32[] memory leaves = new bytes32[](len);
+        for (uint256 i = 0; i < len; i++) {
+            leaves[i] = proof.parachains[i];
+        }
+        if (len > 0) {
+            require(verifyProof(headsRoot, proof.proof, leaves), "bad proof");
+        }
+        return len;
+    }
+
+    function verify(bytes memory previousState, Proof memory proof)
+        external returns (bytes memory)
+    {
+        ConsensusState memory state = abi.decode(previousState, (ConsensusState));
+        if (state.latestHeight >= proof.blockNumber) {
+            return previousState;
+        }
+        verifyParachainHeaders(bytes32(0), proof);
+        state.latestHeight = proof.blockNumber;
+        return abi.encode(state);
+    }
+}
+
+// BUG 24 — REFUND-LOCKED MIDDLEWARE (kelas VENO-C1 BridgeMiddleware zkCRO):
+// deposit ERC20 user diteruskan ke bridgehub (kontrak ini tercatat deposit
+// sender); bila deposit L2 gagal, refund kembali ke kontrak ini — tapi
+// withdraw yang ada hanya base token (via lookup) + ETH ke treasury, tanpa
+// rescue ERC20 arbitrer, tanpa receive()/fallback() (refund ETH revert).
+// Bentuk ringkas BridgeMiddleware.sol (sesi BB pagi 19 Nov 2026, KANDIDAT
+// laten, mock PoC 5/5 PASS).
+interface IBridgeHubMini {
+    function baseToken(uint256 chainId) external view returns (address);
+    function sharedBridge() external view returns (address);
+    function requestL2TransactionTwoBridges(
+        uint256 chainId,
+        uint256 mintValue,
+        uint256 l2Value,
+        uint256 l2GasLimit,
+        uint256 l2GasPerPubdataByteLimit,
+        address refundRecipient,
+        address secondBridgeAddress,
+        uint256 secondBridgeValue,
+        bytes calldata secondBridgeCalldata
+    ) external payable returns (bytes32);
+}
+
+contract RefundTrap {
+    IBridgeHubMini public bridgehub;
+    uint256 public chainId;
+    address public treasury;
+
+    constructor(uint256 _chainId, address _bridgeHub, address _treasury) {
+        chainId = _chainId;
+        bridgehub = IBridgeHubMini(_bridgeHub);
+        treasury = _treasury;
+    }
+
+    function withdrawEth(uint256 _amount) external {
+        require(_amount <= address(this).balance, "insufficient");
+        (bool success,) = payable(treasury).call{value: _amount}("");
+        require(success, "failed");
+    }
+
+    function withdrawBaseToken(uint256 _amount) external {
+        address baseToken = bridgehub.baseToken(chainId);
+        require(_amount <= IERC20(baseToken).balanceOf(address(this)), "insufficient");
+        IERC20(baseToken).safeTransfer(treasury, _amount);
+    }
+
+    function bridge(address _l2Receiver, address _token, uint256 _amount, address _refundRecipient)
+        external payable returns (bytes32)
+    {
+        IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
+        address sharedBridge = bridgehub.sharedBridge();
+        IERC20(_token).approve(sharedBridge, _amount);
+        return bridgehub.requestL2TransactionTwoBridges(
+            chainId, msg.value, 0, 100000, 800, _refundRecipient,
+            sharedBridge, 0, abi.encode(_token, _amount, _l2Receiver)
+        );
+    }
+}
+
+// NEGATIVE CONTROL P — middleware yang sama + rescue ERC20 arbitrer:
+// withdrawToken(token, to, amount) adalah jalur keluar umum -> D23 diam.
+contract RefundTrapRescued {
+    IBridgeHubMini public bridgehub;
+    uint256 public chainId;
+    address public treasury;
+
+    constructor(uint256 _chainId, address _bridgeHub, address _treasury) {
+        chainId = _chainId;
+        bridgehub = IBridgeHubMini(_bridgeHub);
+        treasury = _treasury;
+    }
+
+    function rescueToken(address token, address to, uint256 amount) external {
+        IERC20(token).safeTransfer(to, amount);
+    }
+
+    function bridge(address _l2Receiver, address _token, uint256 _amount, address _refundRecipient)
+        external payable returns (bytes32)
+    {
+        IERC20(_token).safeTransferFrom(msg.sender, address(this), _amount);
+        address sharedBridge = bridgehub.sharedBridge();
+        IERC20(_token).approve(sharedBridge, _amount);
+        return bridgehub.requestL2TransactionTwoBridges(
+            chainId, msg.value, 0, 100000, 800, _refundRecipient,
+            sharedBridge, 0, abi.encode(_token, _amount, _l2Receiver)
+        );
+    }
+}
+
+
+// BUG 25 — VARIANT BRANCH DOES NOT CONSUME PAYLOAD (kelas L-1 Hyperbridge
+// Codec.DecodeHeader): loop decode header SCALE — cabang ITEM_OTHER hanya
+// menandai flag, payload Vec<u8> sesudah tag tidak dibaca; offset tidak
+// maju, item berikutnya ter-parse dari posisi salah; field `other` tak
+// pernah terisi. Bentuk ringkas Codec.DecodeHeader (sesi BB pagi 20 Nov
+// 2026, Info/design, BUKAN kandidat submit — header harus genuinely
+// finalized). Cabang ITEM_UNIT (varian unit, tanpa payload di wire format)
+// sengaja TIDAK di-flag.
+library ScaleSlice {
+    struct Slice { bytes data; uint256 offset; }
+
+    function readByte(Slice memory s) internal pure returns (uint8) {
+        uint8 b = uint8(s.data[s.offset]);
+        s.offset += 1;
+        return b;
+    }
+
+    function readBytes(Slice memory s, uint256 len) internal pure returns (bytes memory) {
+        bytes memory out = new bytes(len);
+        for (uint256 i = 0; i < len; i++) {
+            out[i] = s.data[s.offset + i];
+        }
+        s.offset += len;
+        return out;
+    }
+}
+
+contract ScaleHeaderTrap {
+    uint8 constant ITEM_OTHER = 0;
+    uint8 constant ITEM_CONSENSUS = 4;
+    uint8 constant ITEM_SEAL = 5;
+    uint8 constant ITEM_UNIT = 8;
+
+    struct DigestItem { bytes4 id; bytes data; }
+    struct Digest {
+        bool isOther;
+        bytes other;
+        bool isConsensus;
+        DigestItem consensus;
+        bool isSeal;
+        DigestItem seal;
+        bool isUnit;
+    }
+
+    function decodeItem(ScaleSlice.Slice memory slice) internal pure returns (DigestItem memory) {
+        bytes4 id = bytes4(ScaleSlice.readBytes(slice, 4));
+        uint256 len = uint256(uint8(ScaleSlice.readByte(slice)));
+        bytes memory data = ScaleSlice.readBytes(slice, len);
+        return DigestItem(id, data);
+    }
+
+    function decodeHeader(bytes memory encoded) internal pure returns (Digest[] memory) {
+        ScaleSlice.Slice memory slice = ScaleSlice.Slice(encoded, 0);
+        uint256 length = uint256(uint8(ScaleSlice.readByte(slice)));
+        Digest[] memory digests = new Digest[](length);
+        for (uint256 i = 0; i < length; i++) {
+            uint8 kind = ScaleSlice.readByte(slice);
+            Digest memory digest;
+            if (kind == ITEM_OTHER) {
+                digest.isOther = true;
+            } else if (kind == ITEM_CONSENSUS) {
+                digest.isConsensus = true;
+                digest.consensus = decodeItem(slice);
+            } else if (kind == ITEM_SEAL) {
+                digest.isSeal = true;
+                digest.seal = decodeItem(slice);
+            } else if (kind == ITEM_UNIT) {
+                digest.isUnit = true;
+            }
+            digests[i] = digest;
+        }
+        return digests;
+    }
+}
+
+// NEGATIVE CONTROL Q — semua cabang mengonsumsi payload: cabang Other
+// membaca payload-nya (readByte + readBytes) -> D24 diam.
+contract ScaleHeaderSafe {
+    uint8 constant ITEM_OTHER = 0;
+    uint8 constant ITEM_CONSENSUS = 4;
+
+    struct DigestItem { bytes4 id; bytes data; }
+    struct Digest {
+        bool isOther;
+        bytes other;
+        bool isConsensus;
+        DigestItem consensus;
+    }
+
+    function decodeItem(ScaleSlice.Slice memory slice) internal pure returns (DigestItem memory) {
+        bytes4 id = bytes4(ScaleSlice.readBytes(slice, 4));
+        uint256 len = uint256(uint8(ScaleSlice.readByte(slice)));
+        bytes memory data = ScaleSlice.readBytes(slice, len);
+        return DigestItem(id, data);
+    }
+
+    function decodeHeaderSafe(bytes memory encoded) internal pure returns (Digest[] memory) {
+        ScaleSlice.Slice memory slice = ScaleSlice.Slice(encoded, 0);
+        uint256 length = uint256(uint8(ScaleSlice.readByte(slice)));
+        Digest[] memory digests = new Digest[](length);
+        for (uint256 i = 0; i < length; i++) {
+            uint8 kind = ScaleSlice.readByte(slice);
+            Digest memory digest;
+            if (kind == ITEM_OTHER) {
+                digest.isOther = true;
+                uint256 len = uint256(uint8(ScaleSlice.readByte(slice)));
+                digest.other = ScaleSlice.readBytes(slice, len);
+            } else if (kind == ITEM_CONSENSUS) {
+                digest.isConsensus = true;
+                digest.consensus = decodeItem(slice);
+            }
+            digests[i] = digest;
+        }
+        return digests;
+    }
+}
+
+// NEGATIVE CONTROL R — cabang non-konsumsi satu-satunya adalah varian unit
+// (ITEM_UNIT, tanpa payload di wire format) -> D24 diam.
+contract ScaleHeaderUnit {
+    uint8 constant ITEM_CONSENSUS = 4;
+    uint8 constant ITEM_UNIT = 8;
+
+    struct DigestItem { bytes4 id; bytes data; }
+    struct Digest {
+        bool isConsensus;
+        DigestItem consensus;
+        bool isUnit;
+    }
+
+    function decodeItem(ScaleSlice.Slice memory slice) internal pure returns (DigestItem memory) {
+        bytes4 id = bytes4(ScaleSlice.readBytes(slice, 4));
+        uint256 len = uint256(uint8(ScaleSlice.readByte(slice)));
+        bytes memory data = ScaleSlice.readBytes(slice, len);
+        return DigestItem(id, data);
+    }
+
+    function decodeHeaderUnit(bytes memory encoded) internal pure returns (Digest[] memory) {
+        ScaleSlice.Slice memory slice = ScaleSlice.Slice(encoded, 0);
+        uint256 length = uint256(uint8(ScaleSlice.readByte(slice)));
+        Digest[] memory digests = new Digest[](length);
+        for (uint256 i = 0; i < length; i++) {
+            uint8 kind = ScaleSlice.readByte(slice);
+            Digest memory digest;
+            if (kind == ITEM_CONSENSUS) {
+                digest.isConsensus = true;
+                digest.consensus = decodeItem(slice);
+            } else if (kind == ITEM_UNIT) {
+                digest.isUnit = true;
+            }
+            digests[i] = digest;
+        }
+        return digests;
+    }
+}
+
+
+// BUG 26 — GUARD ASYMMETRY: NAV READERS (kelas H-SOMM-12 Somm Cellar):
+// totalAssets() ber-guard require(!locked), sementara previewRedeem()
+// membaca NAV yang sama lewat _nav() TANPA cek locked — pembaca
+// lintas-kontrak (adaptor balanceOf -> previewRedeem) bisa membaca NAV basi
+// di tengah deposit/withdraw. Latent/hardening (Low): butuh jalur callback
+// ber-hook untuk dieksploitasi. Kontrol S (semua ber-guard) dan kontrol T
+// (semua tanpa guard) diam — keduanya hidup di tes, bukan di file ini.
+contract NavGuardTrap {
+    bool public locked;
+    uint256 public totalSupply;
+    mapping(address => uint256) public balanceOf;
+
+    function _nav() internal view returns (uint256 assets, uint256 supply) {
+        assets = address(this).balance;
+        supply = totalSupply;
+    }
+
+    function totalAssets() public view returns (uint256 assets) {
+        require(!locked, "REENTRANCY");
+        (assets, ) = _nav();
+    }
+
+    function previewRedeem(uint256 shares) public view returns (uint256 assets) {
+        (uint256 _totalAssets, uint256 _totalSupply) = _nav();
+        assets = shares * _totalAssets / (_totalSupply == 0 ? 1 : _totalSupply);
+    }
+}
+
+
+// BUG 27 — UNBOUNDED LOOP ATAS SET YANG BISA DIGELEMBUNGKAN PERMISSIONLESS
+// (kelas H-SOMM-19 Somm VestingSimple): deposit() public tanpa guard menambah
+// allUserDepositIds[receiver] dengan receiver bebas (minimum 0,0001 token);
+// vestedBalanceOf() me-loop seluruh set via .values() tanpa batas —
+// totalAssets yang membacanya brick pada ±3.121 entri (PoC fork 23 Nov 2026).
+// Kontrol U (grower ber-guard) dan kontrol V (kunci msg.sender saja) diam —
+// keduanya hidup di tes, bukan di file ini.
+contract VestingBloatTrap {
+    mapping(address => EnumerableSet.UintSet) private allUserDepositIds;
+    mapping(address => mapping(uint256 => uint256)) public vests;
+    mapping(address => uint256) public currentId;
+    uint256 public minimumDeposit = 1e14;
+
+    function deposit(uint256 assets, address receiver) public returns (uint256 shares) {
+        require(assets >= minimumDeposit, "too small");
+        shares = assets;
+        // Ejaan baca+tulis eksplisit (bukan ++x) supaya detektor dead-config
+        // melihat pembacaan currentId — pola .add() di bawah tetap verbatim.
+        uint256 newDepositId = currentId[receiver] + 1;
+        currentId[receiver] = newDepositId;
+        allUserDepositIds[receiver].add(newDepositId);
+        vests[receiver][newDepositId] = assets;
+    }
+
+    function vestedBalanceOf(address user) public view returns (uint256 balance) {
+        uint256[] memory depositIds = allUserDepositIds[user].values();
+        uint256 numDeposits = depositIds.length;
+        for (uint256 i = 0; i < numDeposits; i++) {
+            balance += vests[user][depositIds[i]];
+        }
     }
 }
