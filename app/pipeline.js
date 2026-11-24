@@ -19,6 +19,10 @@ function normalizeCandidate(raw) {
     toVerify: raw.toVerify || [],
     source: raw.source || "pattern-scan",
     detector: raw.detector || "pattern-scan",
+    // KALIBRASI R-COF-1b (sesi #33 — temuan Kiro F7): penanda internal
+    // commented-out-function berbadan — hanya diteruskan bila ada, supaya
+    // filter R-COF-1 di runPipeline bisa mempertahankannya.
+    ...(raw.commentedHasBody ? { commentedHasBody: true } : {}),
   };
 }
 
@@ -281,6 +285,50 @@ function modifierPart(fn) {
   return sig;
 }
 
+// Helper kalibrasi R18.5 (sesi #45): guard permission-record —
+// `require(x.authorized)` / `if (!x.authorized) revert` di mana x
+// dimuat dari mapping berindeks msg.sender, atau require langsung atas
+// `map[msg.sender]... .authorized`. Kembalikan true bila ada SATU
+// pola guard seperti itu di badan fungsi.
+function hasPermissionRecordGuard(body) {
+  // 1) Identifier yang dimuat dari mapping berindeks msg.sender:
+  // `T memory x = map[msg.sender]...` / `x = map[msg.sender]...`
+  // (rantaian indeks berapa pun; `[^;{]*` tidak melewati batas statement).
+  const loaded = new Set();
+  const loadRe = /\b([A-Za-z_$][\w$]*)\s*=\s*[^;{]*\[\s*msg\.sender\s*\]/g;
+  let lm;
+  while ((lm = loadRe.exec(body)) !== null) loaded.add(lm[1]);
+  const fieldOk = (base) => {
+    const b = base.replace(/\s+/g, "");
+    // Bentuk langsung: map[msg.sender][...].authorized
+    if (/\[msg\.sender\]/.test(b)) return true;
+    // Bentuk via variabel: x.authorized, x dimuat dari mapping msg.sender
+    if (/^[A-Za-z_$][\w$]*$/.test(b) && loaded.has(b)) return true;
+    return false;
+  };
+  // 2a) require(...) / assert(...) atas field permission-record.
+  const reqRe = /(?:require|assert)\s*\(\s*!?\s*([A-Za-z_$][\w$]*(?:\s*\[[^\]]*\])*)\s*\.\s*(?:authorized|isAuthorized)\b/g;
+  let m;
+  while ((m = reqRe.exec(body)) !== null) {
+    if (fieldOk(m[1])) return true;
+  }
+  // 2b) Bentuk revert-guard: if (!x.authorized ...) revert /
+  // if (x.authorized == false ...) revert.
+  const ifRe = /if\s*\(\s*!?\s*([A-Za-z_$][\w$]*(?:\s*\[[^\]]*\])*)\s*\.\s*(?:authorized|isAuthorized)\b[^)]*\)\s*\{?\s*revert\b/g;
+  while ((m = ifRe.exec(body)) !== null) {
+    if (fieldOk(m[1])) return true;
+  }
+  // 2c) require(...) langsung atas mapping boolean berindeks msg.sender
+  // (generalisasi F5c ke rantaian indeks berapa pun; tanpa operator
+  // perbandingan lain supaya `require(balances[msg.sender] > 0)` — cek
+  // saldo, BUKAN guard akses — tetap tidak menekan).
+  const mapRe = /require\s*\(\s*([A-Za-z_$][\w$]*(?:\s*\[[^\]]*\])+)\s*(?:==\s*true\s*)?(?:\s*,[^)]*)?\)/g;
+  while ((m = mapRe.exec(body)) !== null) {
+    if (/\[msg\.sender\]/.test(m[1].replace(/\s+/g, ""))) return true;
+  }
+  return false;
+}
+
 function hasAccessGuard(fn) {
   // Modifier akses di signature — termasuk pola khas bridge/host
   // (restrict, onlyHost, onlyRelayer) yang sempat lolos di hunting
@@ -339,6 +387,20 @@ function hasAccessGuard(fn) {
   // supaya `require(balances[msg.sender] > 0)` (cek saldo, BUKAN guard
   // akses) tetap tidak menekan.
   if (/require\s*\(\s*[A-Za-z_$][\w$]*\s*\[\s*msg\.sender\s*\]\s*(?:==\s*true\s*)?(?:\s*,\s*[^)]*)?\)/.test(fn.body)) return true;
+  // KALIBRASI R18.5 (sesi #45, hunting Resupply — wasit: FA-001
+  // Core.execute ter-flag D18 padahal ber-guard permission-mapping:
+  // `OperatorAuth memory auth = operatorPermissions[msg.sender][...][selector];`
+  // lalu `require(auth.authorized, "!authorized")`): guard bentuk
+  // permission-record — require atas field boolean (.authorized /
+  // .isAuthorized) dari struct yang dimuat dari mapping berindeks
+  // msg.sender (rantaian indeks berapa pun), ATAU require langsung atas
+  // field itu dari mapping berindeks msg.sender, ATAU require langsung
+  // atas mapping boolean berindeks msg.sender (generalisasi F5c);
+  // bentuk revert-guard `if (!x.authorized) revert` ikut dikenali.
+  // Batas: pemuatan via panggilan fungsi (mis. getAuth(msg.sender))
+  // tidak dikenali; field bernama lain (allowed/approved) belum
+  // dikenali — konservatif = TETAP.
+  if (hasPermissionRecordGuard(fn.body)) return true;
   return false;
 }
 
@@ -427,13 +489,124 @@ function detectMissingAccessControl(fn, fileName, id) {
 }
 
 function detectDivisionNoGuard(fn, fileName, id) {
+  // KALIBRASI R-DIV-1 (sesi #44, 20 Nov 2026 — hunting perdana Resupply:
+  // 5/5 kandidat Medium division-no-guard GUGUR wasit karena guard-nya
+  // berbentuk early-return / assignment / else-branch / if-positif,
+  // bukan require() — detektor v1 hanya mengenal require(D > 0)).
+  // Bentuk guard yang kini dikenali (D = denom, mis. totalSupply):
+  //  G1 require(D > 0) / require(D != 0) — bentuk lama.
+  //  G2 early-exit: if (D == 0) { ... return|revert ... } SEBELUM pembagian
+  //      (juga bentuk tanpa kurawal: if (D == 0) return ...;).
+  //  G3 assignment: if (D == 0) { D = <literal bukan-nol>; } SEBELUM pembagian.
+  //  G4 cabang positif: pembagian berada di dalam blok if (D > 0)/(D != 0),
+  //      atau di dalam blok else dari if (D == 0).
+  //  G5 (heuristik lintas-variabel): pembagian oleh denom keluarga-total
+  //      di dalam blok else dari if (X == 0) dengan X keluarga-total juga
+  //      (mis. convertToShares Resupply: else dari if (_totalSupply == 0)
+  //      — vault tak-kosong). BATAS: vault dgn shares>0 tapi assets==0
+  //      tetap revert (view-DoS, Low) — tidak ditangkap detektor ini.
   const out = [];
+  const TOTAL_FAMILY = "(?:totalShares|totalSupply|totalAssets|totalDebt)";
+  // Ekspresi denom: boleh berawalan "_" (alias lokal, mis. _totalSupply)
+  // dan boleh berbentuk panggilan (totalSupply()).
+  const denomExpr = (d) => "(?:_)?" + d + "(?:\\(\\))?";
+  // Cari akhir blok "{...}" yang seimbang mulai dari indeks "{".
+  function blockEnd(body, openIdx) {
+    let depth = 0;
+    for (let i = openIdx; i < body.length; i++) {
+      if (body[i] === "{") depth++;
+      else if (body[i] === "}") { depth--; if (depth === 0) return i; }
+    }
+    return -1;
+  }
+  // Badan pernyataan if: blok "{...}" bila ada, atau sampai ";" bila tanpa kurawal.
+  function ifBodyRange(body, condEndIdx) {
+    let i = condEndIdx;
+    while (i < body.length && /\s/.test(body[i])) i++;
+    if (body[i] === "{") {
+      const end = blockEnd(body, i);
+      return end === -1 ? null : [i, end];
+    }
+    const semi = body.indexOf(";", i);
+    return semi === -1 ? null : [i, semi];
+  }
   for (const denom of DIVISION_DENOMS) {
-    const divRe = new RegExp("/\\s*" + denom + "\\b");
-    if (!divRe.test(fn.body)) continue;
+    const divRe = new RegExp("/\\s*" + denom + "\\b", "g");
+    const divs = [];
+    let dm;
+    while ((dm = divRe.exec(fn.body)) !== null) divs.push(dm.index);
+    if (divs.length === 0) continue;
+    // G1: require(D > 0) / require(D != 0) di mana saja di badan fungsi
+    // (juga bentuk panggilan require(totalSupply() > 0) dan alias _totalSupply).
+    const dExpr = denomExpr(denom);
     const guardRe = new RegExp(
-      "require\\s*\\(\\s*" + denom + "\\s*(>|!=)\\s*0");
+      "require\\s*\\(\\s*" + dExpr + "\\s*(>|!=)\\s*0");
     if (guardRe.test(fn.body)) continue;
+    let allGuarded = true;
+    for (const di of divs) {
+      let guarded = false;
+      // G2/G3: if (D == 0) ... SEBELUM pembagian.
+      const zeroIfRe = new RegExp(
+        "if\\s*\\(\\s*" + dExpr + "\\s*==\\s*0\\s*\\)", "g");
+      let zm;
+      while (!guarded && (zm = zeroIfRe.exec(fn.body)) !== null) {
+        if (zm.index > di) break; // if sesudah pembagian bukan guard
+        const condEnd = zm.index + zm[0].length;
+        const range = ifBodyRange(fn.body, condEnd);
+        if (!range) continue;
+        const stmt = fn.body.slice(range[0], range[1]);
+        // G2: early-exit di dalam badan if.
+        if (/\b(return|revert)\b/.test(stmt)) { guarded = true; break; }
+        // G3: assignment ke literal bukan-nol di dalam badan if.
+        const assignRe = new RegExp(dExpr + "\\s*=\\s*[1-9]");
+        if (assignRe.test(stmt)) { guarded = true; break; }
+        // G4-else: pembagian di dalam blok else dari if (D == 0) ini.
+        // G5: sama, tapi if memakai variabel keluarga-total lain.
+        let j = range[1] + 1;
+        while (j < fn.body.length && /\s/.test(fn.body[j])) j++;
+        if (fn.body.slice(j, j + 4) === "else") {
+          let k = j + 4;
+          while (k < fn.body.length && /\s/.test(fn.body[k])) k++;
+          if (fn.body[k] === "{") {
+            const elseEnd = blockEnd(fn.body, k);
+            if (elseEnd !== -1 && di > k && di < elseEnd) guarded = true;
+          }
+        }
+      }
+      // G4: pembagian di dalam blok if (D > 0) / if (D != 0).
+      if (!guarded) {
+        const posIfRe = new RegExp(
+          "if\\s*\\(\\s*" + dExpr + "\\s*(>|!=)\\s*0\\s*\\)\\s*\\{", "g");
+        let pm;
+        while (!guarded && (pm = posIfRe.exec(fn.body)) !== null) {
+          const openIdx = pm.index + pm[0].length - 1;
+          const end = blockEnd(fn.body, openIdx);
+          if (end !== -1 && di > openIdx && di < end) guarded = true;
+        }
+      }
+      // G5: pembagian di dalam blok else dari if (X == 0), X keluarga-total.
+      if (!guarded) {
+        const famIfRe = new RegExp(
+          "if\\s*\\(\\s*(?:_)?" + TOTAL_FAMILY + "(?:\\(\\))?\\s*==\\s*0\\s*\\)", "g");
+        let fm;
+        while (!guarded && (fm = famIfRe.exec(fn.body)) !== null) {
+          if (fm.index > di) break;
+          const condEnd = fm.index + fm[0].length;
+          const range = ifBodyRange(fn.body, condEnd);
+          if (!range) continue;
+          let j = range[1] + 1;
+          while (j < fn.body.length && /\s/.test(fn.body[j])) j++;
+          if (fn.body.slice(j, j + 4) !== "else") continue;
+          let k = j + 4;
+          while (k < fn.body.length && /\s/.test(fn.body[k])) k++;
+          if (fn.body[k] !== "{") continue;
+          const elseEnd = blockEnd(fn.body, k);
+          if (elseEnd !== -1 && di > k && di < elseEnd) guarded = true;
+        }
+      }
+      if (!guarded) { allGuarded = false; break; }
+    }
+    if (allGuarded) continue;
     out.push(normalizeCandidate({
       id, detector: "division-no-guard",
       title: "Pembagian tanpa guard nol pada " + denom,
@@ -675,6 +848,212 @@ function detectPermissionlessDispatcher(fn, fileName, id) {
     source: "pattern-scan",
   });
   return [mkCandidate(sink.method, sink.recv, sink.args, sink.viaAssembly)];
+}
+
+// ---------------------------------------------------------------------------
+// Kalibrasi R18.4 — dust-by-design (backlog detektor, sesi BB pagi 18 Nov
+// 2026: H3 GUGUR di pass SERANG-DULU Opus 5.5): detektor ke-18 memberi
+// Medium pada dispatch tanpa guard, TAPI bila proyek mendokumentasikan
+// residu dispatcher sebagai dust protokol, korban kehilangan jumlah yang
+// sama dgn/tanpa penyerang (precondition self-inflicted + desain dust
+// terdokumentasi) — severity realistis Low/by-design, bukan Medium.
+// Bukti Hyperbridge: docs `intent-gateway/overview.mdx:162` — "any tokens
+// remaining in the `CallDispatcher` are swept back to the gateway and
+// collected as dust"; di kode sendiri: IntentsBase `_sweepDust`,
+// `event DustCollected`, NatSpec "Sweep accumulated protocol dust".
+//
+// KALIBRASI R18.4b (kalibrasi wasit atas review Kiro crew, sesi 12:38 WIB
+// 18 Nov 2026 — harness H1–H9 9/9 PASS, vonis NEEDS WORK, 14 temuan
+// F2–F15; F1 BENAR konservatif, tanpa perbaikan — `withdrawDust` tanpa
+// sweep/collect memang bukan sinyal). Aturan R18.4b (tiap perbaikan
+// dikunci tes seksi 46):
+//  - Prosa HANYA dari komentar/NatSpec (F2: string literal kode bukan
+//    dokumentasi) dan teks docs utuh; per KALIMAT, bukan per baris (F3).
+//  - Kata konteks diperluas: swept, leftover, remainder, refund, excess*
+//    (F4/F5); "left" telanjang DIHAPUS — hanya "left over/in/behind/there"
+//    (F12: "shift left by 8" bukan dust).
+//  - Negasi ditolak: kalimat berisi not/no/never/cannot/n't/unsupported/
+//    disabled/stay/stuck/trapped/locked + identifier berisi
+//    Not/Never/Disabled/Unsupported/Cannot (F9).
+//  - Baris `import ...;` di-mask sebelum pindai identifier (F8).
+//  - Path test/mock/script + file .t.sol + Mock* dikecualikan (F10).
+//  - Dedup per snippet; kalimat yang bukti dust-nya hanya dari identifier
+//    yang sudah bersinyal tidak dihitung dua kali (F11).
+//  - Ikatan (tie) PER SINYAL, bukan per file (F6/F7/F13): terikat bila
+//    (a) file yang sama, ATAU (b) file sinyal menyebut NAMA KONTRAK
+//    dispatcher kandidat secara eksak (prefix I- opsional —
+//    "CallDispatcher" ≠ "BridgeDispatcher"), ATAU (c) konteks sinyal
+//    (kalimat/baris) menyebut nama itu atau kata "dispatcher".
+//  - Aturan DUA-SUMBER: butuh >=2 sinyal terikat dengan snippet berbeda —
+//    satu kata stray tidak boleh menurunkan severity (fungsi ini
+//    MENURUNKAN severity, jadi false positive lebih berbahaya daripada
+//    false negative). Kandidat TETAP ADA sebagai Low dengan bukti
+//    eksplisit — tidak dihapus.
+//  - Defensif (F14/F15): default field dulu, severity diubah PALING AKHIR.
+// ---------------------------------------------------------------------------
+const DUST_CONTEXT_RE = /\b(swept|sweep\w*|collect\w*|remaining|leftover\w*|remainder|refund\w*|excess\w*|residu\w*|surplus|left\s+(over|in|behind|there))\b/i;
+const DUST_NEG_RE = /\b(not|no|never|cannot|can't|won't|doesn't|don't|isn't|unsupported|disabled|stay|stuck|trapped|locked)\b/i;
+const DUST_ID_NEG_RE = /(not|never|disabled|unsupported|cannot)/i;
+const DUST_TEST_PATH_RE = /(^|\/)(test|tests|mocks?|script|scripts)\//i;
+const DUST_TEST_FILE_RE = /(^|\/)Mock[^/]*\.sol$|\.t\.sol$/i;
+
+// Normalisasi nama dispatcher: awalan "I" interface dibuang
+// ("ICallDispatcher" -> "CallDispatcher") supaya impor dan deklarasi
+// kontrak yang sama bisa dicocokkan.
+function normDustName(name) {
+  return name.replace(/^I(?=[A-Z])/, "");
+}
+
+// Nama-nama kontrak dispatcher yang disebut di teks ini (untuk ikatan (b)).
+function dispatcherNamesInText(text) {
+  const out = new Set();
+  const re = /\bI?[A-Z][A-Za-z0-9$]*Dispatcher\b/g;
+  let m;
+  while ((m = re.exec(text)) !== null) out.add(normDustName(m[0]));
+  return out;
+}
+
+// Pecah prosa menjadi kalimat (`.`, `!`, `?`, `;` + spasi). Baris
+// komentar/docs yang ter-wrap digabung dulu supaya "dust" dan kata
+// konteks yang beda baris tetap satu kalimat (F3).
+function splitSentences(text) {
+  return text.replace(/\s+/g, " ")
+    .split(/(?<=[.!?;])\s+/)
+    .map((s) => s.replace(/^\s*\*+\s*/, "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+// Satu sinyal dust: {file, kind, snippet, context, dispatcherNames, norm}.
+// kind: "identifier" (nama event/fungsi mengandung dust + sweep/collect)
+// atau "comment" (kalimat komentar/docs mengandung dust + kata konteks).
+// context: baris (identifier) / kalimat (prosa) tempat sinyal — dipakai
+// ikatan (c). norm: kunci dedup + hitung dua-sumber.
+function findDustSignalsInText(text, fileName, isDocs) {
+  const signals = [];
+  if (typeof text !== "string" || !text) return signals;
+  const dispatcherNames = dispatcherNamesInText(text);
+  // (a) Identifier: DustCollected / DustSwept / sweepDust / _sweepDust /
+  // collectDust — nama yang mengandung "dust" SEKALIGUS sweep/collect.
+  // Baris `import ...;` di-mask dulu (F8) dengan newline dipertahankan
+  // supaya nomor baris konteks tetap benar.
+  const masked = text.replace(/^[ \t]*import\b[^;]*;/gm,
+    (m) => m.replace(/[^\n]/g, " "));
+  const idRe = /\b([A-Za-z_$][\w$]*)\b/g;
+  let m;
+  const seenIds = new Set();
+  const idNames = new Set();
+  while ((m = idRe.exec(masked)) !== null) {
+    const name = m[1];
+    if (!/dust/i.test(name)) continue;
+    if (!/(sweep|swept|collect)/i.test(name)) continue;
+    if (DUST_ID_NEG_RE.test(name)) continue; // F9: DustSweepNotSupported
+    if (seenIds.has(name)) continue;
+    seenIds.add(name);
+    idNames.add(name);
+    const lineStart = masked.lastIndexOf("\n", m.index) + 1;
+    const lineEnd = masked.indexOf("\n", m.index);
+    const context = masked.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim();
+    signals.push({ file: fileName, kind: "identifier",
+      snippet: "identifier `" + name + "`", context, dispatcherNames,
+      norm: "id:" + name.toLowerCase() });
+  }
+  // (b) Prosa — HANYA dari komentar (F2) atau teks docs utuh; per
+  // kalimat (F3). Kalimat yang bukti dust-nya hanya dari identifier yang
+  // sudah bersinyal tidak dihitung dua kali (F11).
+  const proseTexts = isDocs ? [text]
+    : extractCommentBlocks(text).map((b) => b.text);
+  const seenProse = new Set();
+  for (const prose of proseTexts) {
+    for (let sent of splitSentences(prose)) {
+      sent = sent.replace(/^\s*\*+\s*/, "").trim();
+      if (!sent) continue;
+      let bare = sent;
+      for (const name of idNames) bare = bare.split(name).join(" ");
+      if (!/\bdust\b/i.test(bare)) continue;
+      if (!DUST_CONTEXT_RE.test(bare)) continue;
+      if (DUST_NEG_RE.test(bare)) continue; // F9
+      const norm = "prose:" + bare.toLowerCase().replace(/\s+/g, " ");
+      if (seenProse.has(norm)) continue; // F11
+      seenProse.add(norm);
+      signals.push({ file: fileName, kind: "comment",
+        snippet: "prosa `" + (sent.length > 120 ? sent.slice(0, 117) + "..." : sent) + "`",
+        context: sent, dispatcherNames, norm });
+    }
+  }
+  return signals;
+}
+
+// Kumpulkan sinyal dust atas seluruh file proyek (+ docs bila ada).
+// files: [{name, text}]; docsText: string opsional (teks docs proyek,
+// mis. overview.mdx) dengan label docsLabel. File test/mock/script
+// dikecualikan (F10).
+function collectDustSignals(files, docsText, docsLabel) {
+  const out = [];
+  for (const f of (files || [])) {
+    if (!f || typeof f.text !== "string") continue;
+    if (DUST_TEST_PATH_RE.test(f.name) || DUST_TEST_FILE_RE.test(f.name)) continue;
+    out.push(...findDustSignalsInText(f.text, f.name, false));
+  }
+  if (typeof docsText === "string" && docsText.trim()) {
+    out.push(...findDustSignalsInText(docsText, docsLabel || "docs", true));
+  }
+  return out;
+}
+
+// Apakah sinyal ini terikat ke dispatcher kandidat? (a) file yang sama,
+// (b) file sinyal menyebut nama kontrak dispatcher kandidat secara eksak,
+// (c) konteks sinyal menyebut nama itu atau kata "dispatcher".
+// candidateNames: nama kontrak dispatcher di file kandidat (ternormalisasi).
+function dustSignalTied(signal, fileName, candidateNames) {
+  if (signal.file === fileName) return true;
+  const ctx = signal.context || "";
+  if (/\bdispatcher\b/i.test(ctx)) return true;
+  for (const n of (candidateNames || [])) {
+    const esc = n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp("\\bI?" + esc + "\\b").test(ctx)) return true;
+    if (signal.dispatcherNames && signal.dispatcherNames.has(n)) return true;
+  }
+  return false;
+}
+
+// Terapkan penurunan dust-by-design pada kandidat permissionless-
+// dispatcher (D18 langsung + F10 one-hop): Medium -> Low + bukti.
+// signals: hasil collectDustSignals; fileName: file kandidat ini;
+// candidateNames: nama kontrak dispatcher di file kandidat.
+// Syarat: >=2 sinyal terikat dengan snippet berbeda (aturan dua-sumber).
+// Mengembalikan jumlah kandidat yang diturunkan.
+function applyDustByDesign(candidates, signals, fileName, candidateNames) {
+  let n = 0;
+  for (const c of candidates) {
+    if (c.detector !== "permissionless-dispatcher") continue;
+    if (c.severityGuess !== "Medium") continue;
+    const tied = (signals || []).filter((s) =>
+      dustSignalTied(s, fileName, candidateNames));
+    const distinct = [...new Set(tied.map((s) => s.norm))];
+    if (distinct.length < 2) continue;
+    const shown = [];
+    const seenShown = new Set();
+    for (const s of tied) {
+      if (seenShown.has(s.norm)) continue;
+      seenShown.add(s.norm);
+      shown.push(s.snippet + " (" + s.file + ")");
+      if (shown.length >= 2) break;
+    }
+    // Defensif (F14/F15): default dulu, severity diubah PALING AKHIR.
+    c.evidence = (c.evidence || "") + " [dust-by-design: " + shown.join("; ")
+      + " — residu dispatcher didokumentasikan sebagai dust protokol; "
+      + "severity diturunkan Medium → Low. Wasit: verifikasi konteks "
+      + "dust ini di docs/kode sebelum menutup.]";
+    c.impact = (c.impact || "") + " (Bila dust-by-design terkonfirmasi, dampak realistis "
+      + "= Low/by-design — korban kehilangan jumlah yang sama dgn/tanpa "
+      + "penyerang; kelas H3 Hyperbridge gugur dengan alasan ini.)";
+    c.toVerify = c.toVerify || [];
+    c.toVerify.push("Verifikasi konteks dust-by-design: baca docs/kode "
+      + "yang mendokumentasikan residu dispatcher sebagai dust protokol");
+    c.severityGuess = "Low";
+    n++;
+  }
+  return n;
 }
 
 // Nama parameter fungsi, URUT sesuai deklarasi (null bila parameter tanpa
@@ -935,8 +1314,11 @@ function detectOneHopDispatcher(fns, fileName, startId, flaggedFns) {
 // bertipe address/kontrak, (3) deklarasi lokal bertipe address/kontrak
 // di badan fungsi (signature ikut terpindai — param tertangkap juga di
 // sini, hasilnya sama). `msg.sender` / `this` / `tx.origin` TIDAK PERNAH
-// masuk set ini (bukan identifier deklarasi). BATAS: tipe kontrak dari
-// file lain (import) tidak dikenali — konservatif, tetap 0 (FN diketahui).
+// masuk set ini (bukan identifier deklarasi). R19.4: tipe kontrak dari
+// file lain (import) kini dikenali bila didefinisikan di korpus proyek
+// (opts.projectContractTypeNames) atau bernama interface standar ERC
+// (allowlist di isAddressTypeName); single-file tanpa definisi itu
+// tetap konservatif 0 (kecuali allowlist).
 function collectAddressTypedIdents(fn, ctx) {
   const out = new Set();
   if (!ctx) return out;
@@ -1005,6 +1387,110 @@ function collectAddressTypedIdents(fn, ctx) {
     shadowed.add(dname);
   }
   for (const n of shadowed) out.delete(n);
+  // R19.5a (sesi #34, 19 Nov 2026 — kalibrasi wasit atas review Kiro Opus 5.5
+  // sesi 9bff4797, vonis NEEDS WORK; tiap klaim diverifikasi probe ke kode
+  // ASLI + solc 0.8.20 — lihat docs/kiro-crew-review-2026-11-19-r19-5a.md):
+  // bukti tipe dari ASSIGNMENT: (a) cast `x = T(...)` dengan T ∈
+  // {payable, address} SAJA — lengan tipe-kontrak DIHAPUS (F6 TERBUKTI via
+  // solc: multi-deklarasi `address a, b;` INVALID + `.balance` pada var
+  // bertipe kontrak INVALID sejak 0.5, jadi lengan itu hanya bisa
+  // men-flag kode tak-valid atau FP seperti F1; `address x = IVault(a)`
+  // juga INVALID — konversi implisit kontrak->address tidak ada);
+  // (b) `x = y` dengan y sudah terbukti address-typed. F1: cast harus
+  // menjadi KESELURUHAN RHS — `T(v).method()` bukan cast (cek kurung
+  // seimbang + terminator `;`/`,`/`)` sesudahnya). F2: assignment ke MEMBER
+  // (`s.x`, spasi/baris-baru antara `.` dan nama diizinkan Solidity)
+  // tidak menambah nama — jalan-mundur lewati whitespace sebelum LHS.
+  // F3: unwrap self-alias diperlebar (payable/address + uint/int/bytes +
+  // tipe kontrak cts/allowlist + grup `(...)`, max 6 lapis) — menutup
+  // `payable(address(uint160(address(this))))`. F4: fixpoint 4 -> 8 iterasi
+  // (rantai terbalik sedalam 8). F5 TIDAK DIPERBAIKI (ternary `x = c ? T(a)
+  // : b` tetap 0 — FN konservatif, diterima untuk detektor Low).
+  // Diterapkan SETELAH penghapusan shadow. Pola regex DATAR (pelajaran F5
+  // sesi #33: tanpa grup bersarang berulang).
+  const assignEvRe = /(?<![\w$.])([A-Za-z_$][\w$]*)\s*=(?![=>])\s*([A-Za-z_$][\w$]*)/g;
+  const evMatches = [];
+  let em;
+  while ((em = assignEvRe.exec(bodyNoStr)) !== null) {
+    // R19.5a: izinkan match TUMPANG-TINDIH — chained assignment
+    // `a = b = T(...)` menelan taut kedua bila scan melompat utuh.
+    // Rewind di AWAL iterasi supaya match yang di-skip F2 pun tidak
+    // menyembunyikan taut di dalamnya (`s.x = y = payable(a)`).
+    assignEvRe.lastIndex = em.index + 1;
+    // R19.5a/F2: lewati assignment ke member — karakter non-spasi sebelum
+    // LHS adalah `.` (`s.x`, `s . x`, `s.` + baris-baru + `x`).
+    let k = em.index - 1;
+    while (k >= 0 && /\s/.test(bodyNoStr[k])) k--;
+    if (bodyNoStr[k] === ".") continue;
+    evMatches.push({ lhs: em[1], rhs: em[2], end: em.index + em[0].length });
+  }
+  const nextNonSpace = (i) => {
+    let j = i;
+    while (j < bodyNoStr.length && /\s/.test(bodyNoStr[j])) j++;
+    return j;
+  };
+  // R19.5a: terminator RHS polos — `;`/`,`/`)`/akhir string, atau `=` tunggal
+  // (chained assignment `x = y = ...`; `==` perbandingan DITOLAK — `x = y`
+  // dalam `x = (y == z)` meng-assign bool, bukan address).
+  const isRhsTerminator = (idx) => {
+    const c = bodyNoStr[idx];
+    if (c === ";" || c === "," || c === ")" || c === undefined) return true;
+    if (c === "=" && bodyNoStr[idx + 1] !== "=") return true;
+    return false;
+  };
+  // R19.5a/F1: indeks tepat sesudah `)` penutup panggilan cast (kurung
+  // seimbang; string literal sudah di-mask) — -1 bila tak tertutup.
+  const matchingParenEnd = (openIdx) => {
+    let depth = 0;
+    for (let j = openIdx; j < bodyNoStr.length; j++) {
+      const ch = bodyNoStr[j];
+      if (ch === "(") depth++;
+      else if (ch === ")") { depth--; if (depth === 0) return j + 1; }
+    }
+    return -1;
+  };
+  // Argumen cast adalah `this` / `msg.sender` (unwrap max 6 lapis:
+  // `payable(`/`address(`/`uint160(`/`IVault(`/grup `(...)`) → alias saldo
+  // sendiri, jangan tambah. Nama lain (mis. `foo(`) TIDAK di-unwrap —
+  // konservatif: hasil panggilan fungsi bukan terbukti self.
+  const castArgIsSelf = (openIdx) => {
+    let s = bodyNoStr.slice(openIdx + 1);
+    for (let k = 0; k < 6; k++) {
+      const mm = s.match(/^\s*(?:\(\s*|([A-Za-z_$][\w$]*)\s*\()/);
+      if (!mm) break;
+      if (mm[1] === undefined) { s = s.slice(mm[0].length); continue; }
+      const name = mm[1];
+      if (name === "payable" || name === "address"
+        || /^(u?int\d*|bytes\d*)$/.test(name)
+        || isAddressTypeName(name, cts, sts)) {
+        s = s.slice(mm[0].length);
+      } else break;
+    }
+    return /^\s*(?:this\b|msg\.sender\b)/.test(s);
+  };
+  for (let iter = 0; iter < 8; iter++) {
+    let changed = false;
+    for (const ev of evMatches) {
+      if (out.has(ev.lhs)) continue;
+      const openIdx = nextNonSpace(ev.end);
+      const after = bodyNoStr[openIdx];
+      if (after === "("
+        && (ev.rhs === "payable" || ev.rhs === "address")) {
+        // R19.5a/F1: cast utuh — terminator sesudah `)` penutup.
+        const closeEnd = matchingParenEnd(openIdx);
+        const termIdx = closeEnd === -1 ? -1 : nextNonSpace(closeEnd);
+        const term = closeEnd === -1 ? "" : bodyNoStr[termIdx];
+        if (closeEnd !== -1
+          && (term === ";" || term === "," || term === ")" || term === undefined)
+          && !castArgIsSelf(openIdx)) {
+          out.add(ev.lhs); changed = true;
+        }
+      } else if (isRhsTerminator(openIdx) && out.has(ev.rhs)) {
+        out.add(ev.lhs); changed = true;
+      }
+    }
+    if (!changed) break;
+  }
   return out;
 }
 
@@ -1063,10 +1549,10 @@ function collectIndexedAddressBases(fn, ctx) {
   const sts = ctx.structNames || new Set();
   const elemIsAddress = (elem) => {
     if (!elem) return false;
-    const e = String(elem).replace(/\s+/g, " ").trim();
-    if (e === "address" || e === "address payable") return true;
-    if (sts && sts.has(e)) return false;
-    return !!cts && cts.has(e);
+    // R19.4: satu jalur penilaian tipe elemen — isAddressTypeName sudah
+    // mencakup address / struct-guard / allowlist interface / kontrak
+    // korpus; elem sudah terlucuti kurung siku oleh elemOf.
+    return isAddressTypeName(String(elem).replace(/\s+/g, " ").trim(), cts, sts);
   };
   const elemOf = (type) => {
     if (!type) return "";
@@ -1137,10 +1623,8 @@ function scanIndexedAddressStateBases(clean, contractTypeNames, structNames) {
   const sts = structNames || new Set();
   const elemIsAddress = (elem) => {
     if (!elem) return false;
-    const e = String(elem).replace(/\s+/g, " ").trim();
-    if (e === "address" || e === "address payable") return true;
-    if (sts && sts.has(e)) return false;
-    return !!cts && cts.has(e);
+    // R19.4: satu jalur penilaian tipe elemen (lihat collectIndexedAddressBases).
+    return isAddressTypeName(String(elem).replace(/\s+/g, " ").trim(), cts, sts);
   };
   const src = maskStringLiterals(clean);
   const structSpans = findBlockSpans(src, "struct");
@@ -1212,9 +1696,18 @@ function scanIndexedAddressStateBases(clean, contractTypeNames, structNames) {
 // dikenali BILA ident terbukti address-typed (param/lokal/state var
 // bertipe address atau kontrak/interface di file ini —
 // collectAddressTypedIdents); field struct tetap TIDAK dihitung.
-// BATAS DIKETAHUI: tipe kontrak dari file lain (import) tidak dikenali
-// (konservatif — FN); `x = T(addr)` (cast-assignment tanpa deklarasi)
-// belum melacak tipe. R19.3: akses terindeks `BASE[i].balance` SUDAH
+// BATAS DIKETAHUI (sesudah R19.4, sesi 16:38 WIB 18 Nov 2026): tipe
+// kontrak dari file lain (import) kini dikenali bila didefinisikan di
+// korpus proyek atau bernama interface standar ERC (allowlist);
+// `x = T(addr)` (cast-assignment tanpa deklarasi) dilacak sejak R19.5,
+// DIPERSEMPIT R19.5a (sesi #34): cast HANYA `payable`/`address` + harus
+// menjadi keseluruhan RHS (F1) — lengan tipe-kontrak DIHAPUS (F6: `.balance`
+// pada var kontrak INVALID sejak 0.5 + multi-deklarasi INVALID, solc 0.8.20;
+// lengan itu hanya men-flag kode tak-valid). Batas tersisa: `x = T(addr)`
+// dengan T di luar korpus/allowlist tetap 0; cast di RHS ternary tetap 0
+// (F5, FN konservatif, diterima); rantai assignment terbalik >8 tetap 0
+// (F4); assignment member (`s.x = ...`) tidak menambah `x` (F2).
+// R19.3: akses terindeks `BASE[i].balance` SUDAH
 // dikenali bila elemen BASE terbukti address-typed (residual A16 SELESAI
 // sesi 08:38 WIB 18 Nov 2026); indeks sebagian pada array multi-dimensi
 // (`pools[0].balance` atas `address[][]`) adalah Solidity tak valid,
@@ -1272,7 +1765,10 @@ function detectFullBalanceSweep(fn, fileName, id, ctx) {
   // 2. Pemakaian sebagai jumlah — posisi argumen EKSPLISIT via paren
   //    seimbang: transfer/safeTransfer -> argumen ke-2; transferFrom ->
   //    argumen ke-3; encodeWithSelector(...transfer.selector...) ->
-  //    argumen ke-3; _sendValue -> argumen ke-2.
+  //    argumen ke-3, encodeWithSelector(...transferFrom.selector...) ->
+  //    argumen ke-4 (R19-b, sesi #35: jumlah transferFrom ada di
+  //    args[3], bukan args[2] — cek transferFrom DULU); _sendValue ->
+  //    argumen ke-2.
   const callSiteRe = /\.(safeTransfer|transfer|transferFrom)\s*\(|encodeWithSelector\s*\(|_sendValue\s*\(/g;
   let cs;
   while ((cs = callSiteRe.exec(body)) !== null) {
@@ -1288,7 +1784,13 @@ function detectFullBalanceSweep(fn, fileName, id, ctx) {
       if (cs[0].indexOf("transferFrom") !== -1) amount = args[2];
       else amount = args[1];
     } else if (cs[0].indexOf("encodeWithSelector") !== -1) {
-      if (args[0] && /\.transfer\.selector/.test(args[0])) amount = args[2];
+      // R19-b (sesi #35, residual review Kiro 17 Nov): posisi jumlah
+      // tergantung selector — transfer (to, amount) -> args[2],
+      // transferFrom (from, to, amount) -> args[3]. Batas: selector
+      // bentuk hash keccak256("transferFrom(...)") tanpa `.selector`
+      // tidak dikenali (konservatif, tanpa FP).
+      if (args[0] && /\.transferFrom\.selector/.test(args[0])) amount = args[3];
+      else if (args[0] && /\.transfer\.selector/.test(args[0])) amount = args[2];
     } else if (cs[0].indexOf("_sendValue") !== -1) {
       amount = args[1];
     }
@@ -1325,6 +1827,21 @@ function detectFullBalanceSweep(fn, fileName, id, ctx) {
 // `.transfer(...)`, `.send(...)`. Receiver msg.sender / owner /
 // beneficiary / address(this) dikecualikan (withdraw/owner-payout
 // by-design); value literal 0 dikecualikan. Severity Medium.
+//
+// KALIBRASI R20.2c (sesi #33, 19 Nov 2026 — atas review Kiro Opus 5.5
+// sesi bdefe1bb, vonis NEEDS WORK, F1–F8; tiap klaim diverifikasi wasit
+// ke kode asli via probe): F1 pengecualian entitlement kini terikat
+// jumlah (bukan saldo penuh / param mentah); F2 pengecualian nama hanya
+// bila bukan parameter; F3 bentuk cek entitlement diperlebar
+// (_msgSender, != + revert, OZ v5 _checkAuthorized, qualifier member);
+// F4 cek hanya dihitung SEBELUM titik kirim (E5 artefak — komentar
+// sudah di-strip dari fn.body; E6 if-cabang tanpa revert = batas
+// diketahui); F5 bentuk bersarang `payable(IDENT(ARGS))` ditangani pola
+// sempit satu level (PERCOBAAN recvSrc bersarang umum GAGAL —
+// backtracking katastrofik, probe menggantung >10 dtk — JANGAN ulangi);
+// F6 state-var receiver tetap ter-flag (konservatif, bukan blocker);
+// F7/F8 lihat R-COF-1b. Detail + disposisi:
+// `frankenaudit/docs/kiro-crew-review-2026-11-19-r20-2c-cof1b.md`.
 function detectPermissionlessValueSend(fn, fileName, id) {
   if (fn.isConstructor) return [];
   if (/\b(internal|private)\b/.test(fn.signature)) return [];
@@ -1333,6 +1850,23 @@ function detectPermissionlessValueSend(fn, fileName, id) {
   const body = fn.body;
   const recvSrc = "[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]]*\\]|\\([^)]*\\))*";
   const recvOk = new RegExp("^(" + recvSrc + ")$");
+  const fnParams = new Set(paramNamesOf(fn).filter(Boolean));
+  // Bentuk cek entitlement (F3/F4): diuji HANYA pada teks SEBELUM titik
+  // kirim (lihat pemakaian di bawah — F4/E7: cek sesudah payout tidak
+  // dihitung). SENDER mencakup _msgSender() (OZ Context). Bentuk !=
+  // adalah gaya if-revert custom-error; == di require. Pola ini TIDAK
+  // membedakan require/if-revert dari if-cabang tanpa revert (F4/E6 —
+  // bentuk itu langka; wasit men-triase bila muncul).
+  const SENDER = "(?:msg\\.sender|_msgSender\\s*\\(\\s*\\))";
+  const entitlementRe = new RegExp(
+    "isApprovedOrOwner\\s*\\(\\s*" + SENDER + "\\b"
+    + "|ownerOf\\s*\\([^)]*\\)\\s*==\\s*" + SENDER
+    + "|" + SENDER + "\\s*==\\s*[^;{}=]*ownerOf\\s*\\("
+    + "|ownerOf\\s*\\([^)]*\\)\\s*!=\\s*" + SENDER
+    + "|" + SENDER + "\\s*!=\\s*[^;{}=]*ownerOf\\s*\\("
+    + "|_checkAuthorized\\s*\\(|_isAuthorized\\s*\\("
+  );
+  const entitlementBefore = (text) => entitlementRe.test(text);
   const recvExcluded = (recv) => {
     if (/^msg\.sender$/.test(recv)) return true;
     if (/^address\s*\(\s*this\s*\)$/.test(recv) || recv === "this") return true;
@@ -1342,24 +1876,211 @@ function detectPermissionlessValueSend(fn, fileName, id) {
     // tanpa argumen (`WETH()`) mengembalikan alamat TETAP, bukan pilihan
     // caller — dikecualikan.
     if (/^[A-Za-z_$][\w$]*\(\s*\)$/.test(recv)) return true;
-    // Penerima yang dideklarasikan sebagai pemilik/beneficiary: jalur
-    // payout yang sah (owner withdraw, beneficiary payout).
-    if (/^(owner|beneficiary|treasury)$/.test(recv)) return true;
+    // KALIBRASI R20.2c (temuan Kiro F2 — REGRESI dari R20.2a): nama
+    // owner/beneficiary/treasury hanya dikecualikan bila BUKAN parameter
+    // fungsi — parameter bernama `treasury` adalah alamat pilihan caller.
+    if (/^(owner|beneficiary|treasury)$/.test(recv) && !fnParams.has(recv)) return true;
+    // KALIBRASI R20.2c (temuan Kiro F5/D2 — diputuskan sengaja, bukan
+    // kecelakaan parsing): receiver `ownerOf(...)` ditentukan kontrak
+    // token, bukan pilihan caller — yang dibayar adalah pemilik token.
+    if (/(?:^|\.)ownerOf\s*\(/.test(recv)) return true;
     return !recvOk.test(recv);
+  };
+  // KALIBRASI R20.3c (wasit atas review Kiro R20.3b — sesi #48): nama
+  // entry-point swap yang sah — `swap` telanjang, atau berawalan `swap`
+  // dan mengandung `Exact` (swapExact.../swapTokensForExact...), atau
+  // exactInput/exactOutput. Nama seperti `swapFee` (tanpa Exact) BUKAN
+  // swap dan tidak boleh membebaskan (F8). Penanda c2 juga menerima `,`
+  // sebagai terminator segmen (bentuk abi.encodeCall(fn, ...) — F2b).
+  const isSwapEntryPoint = (name) => name === "swap" || /^swap\w*Exact/.test(name) || /^exactInput/.test(name) || /^exactOutput/.test(name);
+  const hasSwapMarker = (text) => {
+    if (!text) return false;
+    const re = /(?:^|[\s.(])(exactInput\w*|exactOutput\w*|swap\w*)(?:\s*\(|\s*\.\s*selector\b|\s*,)/g;
+    let sm;
+    while ((sm = re.exec(text)) !== null) {
+      if (isSwapEntryPoint(sm[1])) return true;
+    }
+    return false;
   };
   // KALIBRASI R20.1 (wasit): nilai yang dikirim BUKAN dana kontrak bila
   // (a) persis `msg.value` (ETH caller sendiri yang diteruskan — wrap),
   // (b) identifier yang sebelumnya DITARIK dari msg.sender di fungsi yang
   // sama (`safeTransferFrom(msg.sender, ..., V)` — unwrap-forward 1:1,
   // mis. swapExactTokensForETH).
-  const isCallerFunded = (value) => {
-    const t = (value || "").trim();
-    if (t === "msg.value") return true;
-    if (/^[A-Za-z_$][\w$]*$/.test(t)) {
-      const pullRe = new RegExp("\\.(?:safeTransferFrom|transferFrom)\\s*\\(\\s*msg\\.sender\\s*,[^,]+,\\s*" + t.replace(/\$/g, "\\$") + "\\b");
-      if (pullRe.test(body)) return true;
+  // isCallerFunded(value, beforeIdx): nilai kiriman = dana caller sendiri.
+  // beforeIdx = posisi kirim di badan fungsi — penugasan/pull sesudah
+  // kirim tidak dihitung (R20.3a F4). Bentuk indeks amounts[i] diuji via
+  // basisnya (R20.3a F7); bentuk itu tidak memakai pull-forward (b).
+  const isCallerFunded = (value, beforeIdx) => {
+    const raw = (value || "").trim();
+    if (raw === "msg.value") return true;
+    const idxM = raw.match(/^([A-Za-z_$][\w$]*)\s*\[\s*[^\]]+\s*\]$/);
+    const t = idxM ? idxM[1] : raw;
+    if (!/^[A-Za-z_$][\w$]*$/.test(t)) return false;
+    const cut = typeof beforeIdx === "number" ? body.slice(0, beforeIdx) : body;
+    const escId = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // (b) pull-forward (R20.1): V ditarik dari msg.sender — HANYA bila
+    // token yang ditarik WETH-ish ATAU badan memuat .withdraw( (R20.3a F6:
+    // pull token junk + kirim ETH jumlah sama = drain, bukan unwrap).
+    // Receiver dibaca dengan jalan-mundur dari titik ".transferFrom"
+    // (hindari regex paren-bersarang — IERC20(WETH()) punya 2 level).
+    if (!idxM) {
+      const pullRe = new RegExp("\\.(?:safeTransferFrom|transferFrom)\\s*\\(\\s*msg\\.sender\\s*,[^,]+,\\s*" + t.replace(/\$/g, "\\$") + "\\b", "g");
+      let pm;
+      while ((pm = pullRe.exec(cut)) !== null) {
+        let j = pm.index - 1;
+        while (j >= 0 && /[A-Za-z0-9_$()\[\].]/.test(cut[j])) j--;
+        const recv = cut.slice(j + 1, pm.index);
+        if (/weth/i.test(recv) || /\.withdraw\s*\(/.test(cut)) return true;
+      }
+    }
+    // KALIBRASI R20.3/R20.3a (F8 swap-output): jumlah yang dikirim adalah
+    // OUTPUT SWAP atas deposit caller sendiri. Syarat (i): fungsi menarik
+    // dana dari msg.sender KE address(this), jumlahnya berupa identifier
+    // yang dipakai lagi di badan (R20.3a F2: pull 1 wei ke treasury dan
+    // require fee atas msg.value tidak memenuhi). Cabang msg.value
+    // telanjang DIHAPUS (R20.3a F2: output swap ETH butuh input token,
+    // bukan msg.value). Syarat (ii): V ditugaskan dari panggilan swap
+    // (c1) ATAU dari abi.decode atas hasil multicall ke router swap (c2).
+    // Tanpa (i), swap yang didanai saldo kontrak TETAP ter-flag.
+    let callerPulls = false; let pullPos = -1;
+    const pullToThisRe = /(?:safeTransferFrom|transferFrom)\s*\(\s*msg\.sender\s*,\s*address\s*\(\s*this\s*\)\s*,\s*([A-Za-z_$][\w$]*)/g;
+    let pt;
+    while ((pt = pullToThisRe.exec(cut)) !== null) {
+      const amtRe = new RegExp("\\b" + pt[1].replace(/\$/g, "\\$") + "\\b", "g");
+      if ((cut.match(amtRe) || []).length >= 2) { callerPulls = true; pullPos = pt.index; break; }
+    }
+    if (!callerPulls) return false;
+    // Kumpulkan SEMUA penugasan polos V sebelum kirim (bukan member,
+    // mis. cache.amountOut — R20.3a F4); yang dipakai = TERAKHIR, dan
+    // pull harus mendahului penugasan itu.
+    // KALIBRASI R20.3b (F7 residual — sesi #47, probe wasit
+    // /tmp/probe-d20-r203b.js): penugasan via tuple-destructure
+    // `(a, b) = swap(...)` / `(uint a, uint b) = ...` / `(, b) = ...`
+    // juga menetapkan V — kumpulkan bersama penugasan polos, urutkan
+    // menurut posisi, yang dipakai tetap TERAKHIR. Elemen tuple diuji
+    // per koma (kata terakhir elemen sesudah buang tipe harus V);
+    // elemen member (mengandung `.`) dilewati (konservatif).
+    const assigns = [];
+    const assignRe = new RegExp("\\b" + escId + "\\s*=(?![=>])\\s*([^;]{0,400});", "g");
+    let am;
+    while ((am = assignRe.exec(cut)) !== null) {
+      if (am.index > 0 && cut[am.index - 1] === ".") continue;
+      assigns.push({ idx: am.index, rhs: am[1] });
+    }
+    const tupleRe = /\(\s*([^;{}]{0,400})\)\s*=(?![=>])\s*([^;]{0,400});/g; // R20.3c F11: cap 200 -> 400
+    let tm;
+    while ((tm = tupleRe.exec(cut)) !== null) {
+      if (tm.index > 0 && cut[tm.index - 1] === ".") continue;
+      let hasV = false;
+      for (const el of tm[1].split(",")) {
+        const e = el.trim().replace(/\[[^\]]*\]/g, "");
+        if (!e || e.includes(".")) continue;
+        const toks = e.split(/\s+/).filter(Boolean);
+        if (toks.length && toks[toks.length - 1].replace(/\)+$/, "") === t) { hasV = true; break; } // R20.3c T5: kupas `)` akhir (tuple bersarang)
+      }
+      if (!hasV) continue;
+      assigns.push({ idx: tm.index, rhs: tm[2] });
+    }
+    assigns.sort((a, b) => a.idx - b.idx);
+    const lastAssign = assigns.length ? assigns[assigns.length - 1] : null;
+    const lastRhs = lastAssign ? lastAssign.rhs : null;
+    const lastAssignIdx = lastAssign ? lastAssign.idx : -1;
+    if (lastRhs === null || pullPos >= lastAssignIdx) return false;
+    // (c1) penugasan terakhir = panggilan swap: segmen callee TERAKHIR
+    // harus DIAWALI swap/exactInput/exactOutput (R20.3a F3: quote-/
+    // preview-/getSwapFee- tidak lolos).
+    // R20.3c F8: segmen swap harus lolos isSwapEntryPoint (swapFee ditolak).
+    const c1Re = /(?:^|[\s.(])(exactInput\w*|exactOutput\w*|swap\w*)\s*\(/g;
+    let c1m; let c1Hit = false;
+    while ((c1m = c1Re.exec(lastRhs)) !== null) { if (isSwapEntryPoint(c1m[1])) { c1Hit = true; break; } }
+    if (c1Hit) return true;
+    // (c2) penugasan terakhir = abi.decode(RESULTS[i], ...) + RESULTS =
+    // ...<receiver swap/router>.multicall(... (R20.3a F5: receiver
+    // multicall harus router swap — oracle tidak lolos; R20.3b F5
+    // residual — sesi #47, probe wasit /tmp/probe-d20-r203b.js: penanda
+    // swap harus TERIKAT ke argumen data multicall — literal di argumen,
+    // pengisian data[i]/push, atau RHS var yang diisikan (satu hop) —
+    // penanda di var tak terpakai + data quote tidak lagi lolos; bila
+    // data tidak diisi lokal (param/helper lain), fallback ke uji global
+    // lama supaya perilaku bentuk itu tidak berubah).
+    const decM = lastRhs.match(/^\s*abi\.decode\s*\(\s*([A-Za-z_$][\w$]*)\s*\[/);
+    if (decM) {
+      const resVar = decM[1].replace(/\$/g, "\\$");
+      const mcRe = new RegExp("\\b" + resVar + "\\s*=\\s*([^;]{0,300})\\.multicall\\s*\\(");
+      const mm = mcRe.exec(cut);
+      if (mm && /swap|router/i.test(mm[1])) {
+        const openIdx = mm.index + mm[0].length - 1;
+        const parsed = splitTopLevelArgs(cut, openIdx);
+        if (parsed && parsed.args.length) {
+          const dataArg = (parsed.args[parsed.args.length - 1] || "").trim();
+          if (hasSwapMarker(dataArg)) return true;
+          const idM = dataArg.match(/^([A-Za-z_$][\w$]*)$/);
+          if (idM) {
+            const dEsc = idM[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const fills = [];
+            const fillRes = [
+              new RegExp("\\b" + dEsc + "\\s*\\[[^\\]]*\\]\\s*=\\s*([^;]{0,400});", "g"),
+              new RegExp("\\b" + dEsc + "\\s*\\.\\s*push\\s*\\(\\s*([^;)]{0,400})[^;]*;", "g"), // R20.3c F1: tangkap argumen push tanpa `)` penutup
+              new RegExp("\\b" + dEsc + "\\s*=(?![=>])\\s*([^;]{0,400});", "g"),
+            ];
+            for (const fr of fillRes) {
+              let fm;
+              while ((fm = fr.exec(cut)) !== null) fills.push(fm[1]);
+            }
+            if (fills.length) {
+              for (const f of fills) {
+                if (hasSwapMarker(f)) return true;
+                const vM = f.trim().match(/^([A-Za-z_$][\w$]*)$/);
+                if (vM) {
+                  const vEsc = vM[1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                  const defRe = new RegExp("\\b" + vEsc + "\\s*=(?![=>])\\s*([^;]{0,400});", "g"); // R20.3c F3: uji SEMUA definisi var
+                  let dm;
+                  while ((dm = defRe.exec(cut)) !== null) {
+                    if (hasSwapMarker(dm[1])) return true;
+                  }
+                }
+              }
+            } else if (/exactInput|exactOutput/.test(cut)) {
+              // Data tidak diisi lokal (param / helper lain): pertahankan
+              // perilaku lama (uji global) supaya bentuk itu tak berubah.
+              return true;
+            }
+          }
+        }
+      }
     }
     return false;
+  };
+  // KALIBRASI R20.2c (temuan Kiro F1 — LUBANG di R20.2b): pengecualian
+  // entitlement HANYA bila jumlah yang dikirim bukan dana kontrak
+  // sembarang — BUKAN `address(this).balance` (atau ekspresi yang
+  // memuatnya) dan BUKAN parameter fungsi mentah (jumlah pilihan caller).
+  // Jumlah dari state per-token (mis. `bonds[id]`) atau variabel lokal
+  // hasil hitung tetap dikecualikan (kasus unbond: tokenAmount lokal).
+  const isEntitledPayout = (recv, value, entitled) => {
+    if (!entitled) return false;
+    if (!/^[A-Za-z_$][\w$]*$/.test(recv) || !fnParams.has(recv)) return false;
+    const v = (value || "").replace(/\s+/g, "");
+    if (v.includes("address(this).balance")) return false;
+    if (/^[A-Za-z_$][\w$]*$/.test(v) && fnParams.has(v)) return false;
+    return true;
+  };
+  // Unwrap `payable(X)` / `address(X)` berlapis (maks 2 lapis — cukup
+  // untuk `payable(address(to))`); X yang mengandung paren tidak
+  // ikut di-unwrap di sini (ditangani pola bersarang di bawah).
+  const unwrapCall = (r) => {
+    const mm = r.match(/^(payable|address)\s*\((.*)\)\s*$/s);
+    return mm ? mm[2].trim() : null;
+  };
+  const unwrapRecv = (recv) => {
+    let r = recv;
+    for (let k = 0; k < 2; k++) {
+      const u = unwrapCall(r);
+      if (u === null) break;
+      r = u;
+    }
+    return r;
   };
   const mkCandidate = (method, recv, value) => normalizeCandidate({
     id, detector: "permissionless-value-send",
@@ -1379,38 +2100,65 @@ function detectPermissionlessValueSend(fn, fileName, id) {
       "PoC fork: panggil dari alamat acak ke alamat penyerang"],
     source: "pattern-scan",
   });
-  // .call{value: V}("") — data kosong.
+  // Kumpulkan SEMUA pengiriman ETH (bentuk utama + bentuk bersarang),
+  // urutkan menurut posisi di badan fungsi, lalu proses berurutan —
+  // kandidat pertama yang tidak terkecualikan menang. (Dulu dua loop
+  // terpisah: semua .call dulu baru .transfer — kini urutan posisi kode.)
+  const sends = [];
+  // .call{value: V}("") — data kosong (bentuk utama).
   const callRe = new RegExp("(" + recvSrc + ")\\s*\\.\\s*call\\s*\\{[^}]*value\\s*:\\s*([^,}]+)\\}\\s*\\(\\s*(\"\"|'')\\s*\\)", "g");
   let m;
   while ((m = callRe.exec(body)) !== null) {
-    const recv = m[1].trim(), value = (m[2] || "").trim();
-    if (value === "0") continue;
-    if (isCallerFunded(value)) continue;
-    if (recvExcluded(recv)) continue;
-    return [mkCandidate(".call{value:}", recv, value)];
+    sends.push({ index: m.index, recv: m[1].trim(), value: (m[2] || "").trim(), method: ".call{value:}" });
+  }
+  // Bentuk bersarang (F5 — SATU level saja): `payable(IDENT(ARGS)).call`
+  // — mis. `payable(address(to))` (E3) dan `payable(ownerOf(id))` (D2).
+  // Pola ini sengaja SEMPIT (argumen dalam tanpa paren) supaya tidak ada
+  // backtracking katastrofik seperti percobaan recvSrc bersarang umum.
+  const nestedCallRe = /payable\s*\(\s*([\w$.]+)\s*\(([^()]*)\)\s*\)\s*\.\s*call\s*\{[^}]*value\s*:\s*([^,}]+)\}\s*\(\s*(""|'')\s*\)/g;
+  while ((m = nestedCallRe.exec(body)) !== null) {
+    sends.push({ index: m.index, recv: m[1] + "(" + m[2] + ")", value: (m[3] || "").trim(), method: ".call{value:}" });
   }
   // .transfer(V) / .send(V) — termasuk payable(to).transfer(V).
   // Pembedanya dari ERC20 transfer(to, amount): ETH transfer/send hanya
   // punya SATU argumen (jumlah) — dihitung via paren seimbang.
   const tsRe = /((?:payable\s*\(\s*)?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|\[[^\]]*\]|\([^)]*\))*(?:\s*\))?)\s*\.\s*(transfer|send)\s*\(/g;
   while ((m = tsRe.exec(body)) !== null) {
-    let recv = m[1].trim();
+    const recv = m[1].trim();
     const openIdx = body.indexOf("(", m.index + m[0].length - 1);
     if (openIdx === -1) continue;
     const parsed = splitTopLevelArgs(body, openIdx);
     if (!parsed || parsed.args.length !== 1) continue; // ERC20: 2 argumen
     const value = (parsed.args[0] || "").trim();
+    sends.push({ index: m.index, recv, value, method: "." + m[2] });
+  }
+  // Bentuk bersarang .transfer/.send: `payable(address(to)).transfer(V)`.
+  const nestedTsRe = /payable\s*\(\s*([\w$.]+)\s*\(([^()]*)\)\s*\)\s*\.\s*(transfer|send)\s*\(/g;
+  while ((m = nestedTsRe.exec(body)) !== null) {
+    const openIdx = body.indexOf("(", m.index + m[0].length - 1);
+    if (openIdx === -1) continue;
+    const parsed = splitTopLevelArgs(body, openIdx);
+    if (!parsed || parsed.args.length !== 1) continue;
+    const value = (parsed.args[0] || "").trim();
+    sends.push({ index: m.index, recv: m[1] + "(" + m[2] + ")", value, method: "." + m[3] });
+  }
+  sends.sort((a, b) => a.index - b.index);
+  for (const s of sends) {
+    let recv = s.recv;
+    const value = s.value;
     if (value === "0") continue;
-    if (isCallerFunded(value)) continue;
-    // payable(to) -> to (untuk cek pengecualian).
-    const inner = recv.match(/^payable\s*\(\s*([\w$.]+)\s*\)$/);
-    if (inner) recv = inner[1];
+    if (isCallerFunded(value, s.index)) continue;
+    // KALIBRASI R20.2a (sesi #33): unwrap payable(...)/address(...) —
+    // kalau tidak, `payable(treasury)` lolos dari pengecualian receiver
+    // sah (kasus nyata Veno FA-001).
+    recv = unwrapRecv(recv);
     if (recvExcluded(recv)) continue;
-    return [mkCandidate("." + m[2], recv, value)];
+    const entitled = entitlementBefore(body.slice(0, s.index));
+    if (isEntitledPayout(recv, value, entitled)) continue;
+    return [mkCandidate(s.method, recv, value)];
   }
   return [];
 }
-
 // Detektor replay-signature (temuan Kiro Opus 5.5, sesi 20:38 WIB
 // 2026-11-13 — temuan B, High): ecrecover tanpa nonce / domain
 // separator / chainId / address(this) di digest. Satu signature sah
@@ -1475,6 +2223,218 @@ function detectShareAccounting(fn, fileName, id, ctx) {
   })];
 }
 
+// KALIBRASI R-COF-3a (sesi #50, 21 Nov 2026 — disposisi wasit atas
+// review Kiro Opus 5.5 sesi d1075178, vonis NEEDS WORK, F1–F12):
+// TERBUKTI + diperbaiki: F2 (string di body menyuntik guard palsu —
+// string kini di-mask sebelum pindai), F3 (argumen revert dihitung
+// sebagai bukti kondisi — token guard kini HANYA dari kondisi if,
+// argumen revert tidak lagi dihitung), F5/F6 (literal 0/1 + `1e18` →
+// ident palsu `e18` — literal TIDAK lagi dipakai sebagai bukti SAMA
+// SEKALI: aturan (a) "literal bersama" DIHAPUS karena X8 membuktikan
+// literal bersama bisa over-suppress (`price >= 1e18` vs `fee > 1e18`);
+// angka kini di-mask sebelum ekstraksi identifier, satuan ether/wei/
+// gwei/days/dll masuk stoplist), F9 (revert di else-branch — kini
+// dikenali, token dari kondisi if + kondisi bersarang di else),
+// F11 (require/assert hidup duplikat — kini dikenali sebagai padanan).
+// Aturan tekan yang baru: identifier bersama >= 3, ATAU >= 2 DENGAN
+// token panggilan/member bersama. Kasus EFP tetap ter-suppress (3
+// identifier bersama: existing/length/manager).
+// DITOLAK sbg artefak: F1 (komentar di fnBody — artefak harness Kiro;
+// pipeline mengirim fn.body dari source yang SUDAH comment-stripped,
+// probe W-F1: 1 kandidat, tidak ter-suppress).
+// DITOLAK sbg desain: F8 (N1/N2/N6 — ambang konservatif klaim (d);
+// under-suppress itu disengaja; Kiro sendiri mencatatnya demikian).
+// DITOLAK sbg usulan stoplist: `length`/`balance` di F6 — keduanya
+// sinyal struktural member-access (kasus EFP bergantung pada `length`).
+// BATAS (didokumentasikan, tidak diperbaiki — butuh perbandingan kondisi
+// ternormalisasi / analisis antar-fungsi, terlalu besar 3 hari sebelum
+// freeze 24 Nov): F4 (pencocokan token buta-operator — guard dgn
+// identifier sama tapi satu perbandingan terbalik bisa over-suppress,
+// mis. X2), F10 (guard Yul di assembly), F12 (helper/ternary yang revert).
+const COF3_STOPLIST = new Set(("require assert revert if else true false msg sender tx origin "
+  + "block timestamp number gasleft address payable uint uint8 uint16 uint32 uint64 uint128 uint256 "
+  + "int int8 int16 int32 int64 int128 int256 bool bytes bytes32 string memory storage calldata "
+  + "public external internal private view pure returns return this super new delete for while do "
+  + "break continue emit try catch assembly error using is import contract library interface "
+  + "struct enum event modifier constructor function var let const unchecked virtual override "
+  + "immutable constant indexed anonymous abstract fallback receive keccak256 sha256 abi type "
+  + "selector gas value coinbase difficulty prevrandao chainid basefee blobhash blobbasefee "
+  + "not and or "
+  + "ether wei gwei finney szabo seconds minutes hours days weeks years").split(" "));
+// Literal numerik (dipakai untuk masking, BUKAN bukti — lihat R-COF-3a):
+// heksadesimal, desimal dgn underscore, notasi ilmiah (1e18).
+const COF3_LITERAL_RE = /\b0x[0-9a-fA-F_]+\b|\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g;
+function cof3SignalTokens(text) {
+  const idents = new Set(), calls = new Set();
+  if (!text) return { idents, calls };
+  // String literal di-strip (isi pesan require bukan kode — "slot already
+  // claimed" tidak boleh menyumbang token `slot`/`claimed`).
+  let work = text.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, " ");
+  // Angka di-mask SEBELUM ekstraksi identifier (R-COF-3a F6): `1e18`
+  // tidak boleh melahirkan ident palsu `e18`, `0x1626ba7e` tidak boleh
+  // melahirkan `x1626ba7e`.
+  work = work.replace(COF3_LITERAL_RE, (m) => " ".repeat(m.length));
+  const identRe = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+  let m;
+  while ((m = identRe.exec(work)) !== null) {
+    const name = m[0];
+    if (name.length < 3 || COF3_STOPLIST.has(name)) continue;
+    idents.add(name);
+    const after = work[m.index + name.length];
+    if (after === "(" || after === ".") calls.add(name);
+  }
+  return { idents, calls };
+}
+// Mask string literal dgn spasi sama-panjang (R-COF-3a F2): pola
+// `if (...) { revert }` di dalam string tidak boleh dibaca sebagai guard.
+function cof3MaskStrings(text) {
+  return text.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, (m) => " ".repeat(m.length));
+}
+// Kondisi semua `if (...)` di teks (scan datar, kurung seimbang).
+function cof3IfConditions(text) {
+  const conds = [];
+  const ifRe = /\bif\s*\(/g;
+  let m;
+  while ((m = ifRe.exec(text)) !== null) {
+    const openIdx = text.indexOf("(", m.index);
+    let depth = 0, closeIdx = -1;
+    for (let j = openIdx; j < text.length; j++) {
+      if (text[j] === "(") depth++;
+      else if (text[j] === ")") { depth--; if (depth === 0) { closeIdx = j; break; } }
+    }
+    if (closeIdx === -1) continue;
+    conds.push(text.slice(openIdx + 1, closeIdx));
+  }
+  return conds;
+}
+// Cakupan sesudah kondisi `if (...)`: blok `{...}` (kurung seimbang) atau
+// pernyataan tunggal sampai `;`. Mengembalikan { scope, end } atau null.
+function cof3ScopeAfter(body, closeIdx) {
+  let k = closeIdx + 1;
+  while (k < body.length && /\s/.test(body[k])) k++;
+  if (body[k] === "{") {
+    let d = 0, end = -1;
+    for (let j = k; j < body.length; j++) {
+      if (body[j] === "{") d++;
+      else if (body[j] === "}") { d--; if (d === 0) { end = j; break; } }
+    }
+    if (end === -1) return null;
+    return { scope: body.slice(k + 1, end), end };
+  }
+  const semi = body.indexOf(";", k);
+  if (semi === -1) return null;
+  return { scope: body.slice(k, semi + 1), end: semi };
+}
+// Daftar guard hidup `if + revert` di badan fungsi: tiap entri = token
+// sinyal dari kondisi if terluar + kondisi if bersarang di cakupannya
+// (R-COF-3a F3: argumen revert TIDAK dihitung — hanya kondisi).
+// R-COF-3a F9: cabang `else` yang memuat revert ikut dihitung sebagai
+// guard (token dari kondisi if-nya + kondisi bersarang di else).
+function cof3LiveRevertGuards(body) {
+  const masked = cof3MaskStrings(body);
+  const guards = [];
+  const pushGuard = (parts) => {
+    const merged = { idents: new Set(), calls: new Set() };
+    for (const p of parts) {
+      const t = cof3SignalTokens(p);
+      for (const x of t.idents) merged.idents.add(x);
+      for (const x of t.calls) merged.calls.add(x);
+    }
+    guards.push(merged);
+  };
+  const ifRe = /\bif\s*\(/g;
+  let m;
+  while ((m = ifRe.exec(masked)) !== null) {
+    const openIdx = masked.indexOf("(", m.index);
+    let depth = 0, closeIdx = -1;
+    for (let j = openIdx; j < masked.length; j++) {
+      if (masked[j] === "(") depth++;
+      else if (masked[j] === ")") { depth--; if (depth === 0) { closeIdx = j; break; } }
+    }
+    if (closeIdx === -1) continue;
+    const cond = masked.slice(openIdx + 1, closeIdx);
+    const thenScope = cof3ScopeAfter(masked, closeIdx);
+    if (!thenScope) continue;
+    if (/\brevert\b/.test(thenScope.scope)) {
+      pushGuard([cond].concat(cof3IfConditions(thenScope.scope)));
+    }
+    // Cabang else: revert di else = guard atas negasi kondisi if.
+    let e = thenScope.end + 1;
+    while (e < masked.length && /\s/.test(masked[e])) e++;
+    if (masked.slice(e, e + 4) === "else" && !/[A-Za-z0-9_$]/.test(masked[e + 4] || "")) {
+      let f = e + 4;
+      while (f < masked.length && /\s/.test(masked[f])) f++;
+      if (masked.slice(f, f + 2) !== "if") { // else-if ditangani scan utama
+        const es = cof3ElseScope(masked, f);
+        if (es && /\brevert\b/.test(es.scope)) {
+          pushGuard([cond].concat(cof3IfConditions(es.scope)));
+        }
+      }
+    }
+  }
+  return guards;
+}
+// Cakupan cabang `else` tanpa kondisi: `{...}` atau pernyataan tunggal.
+function cof3ElseScope(masked, start) {
+  let k = start;
+  while (k < masked.length && /\s/.test(masked[k])) k++;
+  if (masked[k] === "{") {
+    let d = 0, end = -1;
+    for (let j = k; j < masked.length; j++) {
+      if (masked[j] === "{") d++;
+      else if (masked[j] === "}") { d--; if (d === 0) { end = j; break; } }
+    }
+    if (end === -1) return null;
+    return { scope: masked.slice(k + 1, end), end };
+  }
+  const semi = masked.indexOf(";", k);
+  if (semi === -1) return null;
+  return { scope: masked.slice(k, semi + 1), end: semi };
+}
+// Daftar padanan hidup berupa require/assert di badan fungsi
+// (R-COF-3a F11): token dari argumen panggilan (pesan string di-strip
+// oleh cof3SignalTokens).
+function cof3LiveRequireGuards(body) {
+  const masked = cof3MaskStrings(body);
+  const guards = [];
+  const re = /\b(?:require|assert)\s*\(/g;
+  let m;
+  while ((m = re.exec(masked)) !== null) {
+    const openIdx = masked.indexOf("(", m.index);
+    let depth = 0, closeIdx = -1;
+    for (let j = openIdx; j < masked.length; j++) {
+      if (masked[j] === "(") depth++;
+      else if (masked[j] === ")") { depth--; if (depth === 0) { closeIdx = j; break; } }
+    }
+    if (closeIdx === -1) continue;
+    guards.push(cof3SignalTokens(masked.slice(openIdx + 1, closeIdx)));
+  }
+  return guards;
+}
+// Benar bila ada satu guard hidup yang menegakkan kondisi sama dengan cek
+// yang dikomentari (aturan R-COF-3a: identifier bersama >= 3, ATAU >= 2
+// dgn token panggilan/member bersama).
+function cof3Matches(commented, guard) {
+  let sharedIdents = 0;
+  for (const t of guard.idents) if (commented.idents.has(t)) sharedIdents++;
+  if (sharedIdents >= 3) return true;
+  if (sharedIdents < 2) return false;
+  for (const t of guard.calls) if (commented.calls.has(t)) return true;
+  return false;
+}
+function cof3HasLiveEquivalent(fnBody, commentedText) {
+  if (!fnBody || !commentedText) return false;
+  const commented = cof3SignalTokens(commentedText);
+  if (commented.idents.size < 2) return false;
+  for (const g of cof3LiveRevertGuards(fnBody)) {
+    if (cof3Matches(commented, g)) return true;
+  }
+  for (const g of cof3LiveRequireGuards(fnBody)) {
+    if (cof3Matches(commented, g)) return true;
+  }
+  return false;
+}
+
 // Detektor commented-out-check (backlog kelas AMP-01/AMP-02, sesi
 // 20:38 WIB 2026-11-13 — Amply: require siloed-borrowing di
 // ValidationLogic.validateBorrow dikomentari, setDebtCeiling dikomentari
@@ -1491,7 +2451,21 @@ function detectCommentedOutCheck(fn, fileName, id, ctx) {
     if (c.line < fn.startLine || c.line > fn.endLine) continue;
     const text = c.text.trim();
     if (text.startsWith("@")) continue; // baris NatSpec, bukan kode
+    // KALIBRASI R-COF-2 (sesi #45, hunting Resupply — wasit: FA-003/004
+    // FixedPointMathLib mulDivDown/Up ter-flag padahal komentar
+    // "Equivalent to require(...)" menjelaskan cek assembly yang ADA
+    // (if iszero(...) { revert(0,0) } di baris berikut), bukan cek yang
+    // dimatikan): komentar yang membuka dengan "Equivalent to" adalah
+    // dokumentasi semantik kode hidup, bukan kode yang dikomentari.
+    // Batas: frasa prosa lain ("Same as require", "Acts as require")
+    // belum dikecualikan — konservatif = TETAP memicu bila muncul.
+    if (/^equivalent\s+to\b/i.test(text)) continue;
     if (!checkRe.test(text)) continue;
+    // KALIBRASI R-COF-3 (sesi #50): cek yang dikomentari punya padanan
+    // hidup `if + revert CustomError` di fungsi yang sama (refactor,
+    // bukan dimatikan) -> lewati komentar ini, lanjut pindai komentar
+    // lain di fungsi yang sama (bukan langsung return []).
+    if (cof3HasLiveEquivalent(fn.body, text)) continue;
     return [normalizeCandidate({
       id, detector: "commented-out-check",
       title: "Cek keamanan dikomentari (commented-out check)",
@@ -1567,7 +2541,14 @@ function listCommentedOutFunctions(ctx) {
         || /^\s*;/.test(after);
       if (!looksLikeDef) continue;
       seen.add(name);
-      items.push({ name, startLine: b.startLine, endLine: b.endLine, text: b.text });
+      // KALIBRASI R-COF-1b (sesi #33 — temuan Kiro F7): badan dikomentari
+      // (`{` sebelum `;` pertama sesudah `)`) BUKAN trimming interface —
+      // interface tidak bisa punya badan, jadi ini kode implementasi yang
+      // dimatikan lalu ditempel di file interface.
+      const braceIdx = after.indexOf("{");
+      const semiIdx = after.indexOf(";");
+      const hasBody = braceIdx !== -1 && (semiIdx === -1 || braceIdx < semiIdx);
+      items.push({ name, startLine: b.startLine, endLine: b.endLine, text: b.text, hasBody });
     }
   }
   return items;
@@ -1586,6 +2567,11 @@ function listCommentedOutFunctions(ctx) {
 // Detektor level-FILE (bukan per-fungsi): fungsi yang dikomentari bukan
 // fungsi hidup, jadi lokasinya memakai nama fungsi yang dikomentari.
 function detectCommentedOutFunction(fileName, idStart, ctx) {
+  // KALIBRASI R-COF-1 (sesi #33, 19 Nov 2026 — residual hunting Veno):
+  // penyaringan kandidat interface-only TIDAK di sini, melainkan
+  // pasca-klasifikasi di runPipeline — kandidat dari file interface-only
+  // hanya dipertahankan bila baseline membuktikan fungsi itu memang ada
+  // di upstream (lihat filter sesudah classifyUpstreamDiff).
   const items = listCommentedOutFunctions(ctx);
   return items.map((it, n) => normalizeCandidate({
     id: "FA-" + String(idStart + n).padStart(3, "0"),
@@ -1609,6 +2595,7 @@ function detectCommentedOutFunction(fileName, idStart, ctx) {
       "cek apakah jalur pengganti masih aktif di tempat lain",
       "PoC fork: panggil jalur yang bergantung pada fungsi ini"],
     source: "pattern-scan",
+    ...(it.hasBody ? { commentedHasBody: true } : {}),
   }));
 }
 
@@ -2516,16 +3503,31 @@ function structNamesOf(src) {
   return out;
 }
 
+// R19.4 (sesi 16:38 WIB 18 Nov 2026 — residual A17/A19 TERBUKTI):
+// nama interface standar ERC — secara definisi bertipe alamat, walau
+// definisinya tidak ada di korpus (dependencies OZ dikecualikan dari
+// hunting). Struct senama di file ini tetap menang (cek structNames
+// di isAddressTypeName di bawah) — allowlist tidak menembus struct.
 // Apakah sebuah NAMA TIPE address-typed: `address` / `address payable`,
 // atau nama kontrak/interface yang dideklarasikan di file ini. Struct
 // (namanya ada di structNames) dan primitif lain BUKAN address-typed;
 // tipe array (`address[]`) juga bukan — `arr.balance` bukan Solidity valid.
+const WELL_KNOWN_INTERFACE_TYPES = new Set([
+  "IERC20", "IERC20Metadata",
+  "IERC721", "IERC721Metadata", "IERC721Enumerable", "IERC721Receiver",
+  "IERC1155", "IERC1155MetadataURI", "IERC1155Receiver",
+  "IERC4626", "IERC165", "IERC777", "IERC2981",
+  "IERC3156FlashBorrower", "IERC3156FlashLender",
+  "IWETH", "IWETH9",
+  "ERC20", "ERC721", "ERC1155",
+]);
 function isAddressTypeName(typeName, contractTypeNames, structNames) {
   if (!typeName) return false;
   const t = String(typeName).replace(/\s+/g, " ").trim();
   if (t.indexOf("[") !== -1) return false;
   if (t === "address" || t === "address payable") return true;
   if (structNames && structNames.has(t)) return false;
+  if (WELL_KNOWN_INTERFACE_TYPES.has(t)) return true;
   return !!contractTypeNames && contractTypeNames.has(t);
 }
 
@@ -2570,6 +3572,8 @@ function scanModifiers(src) {
     const end = blockEndIndex(src, brace);
     if (end === -1) continue;
     out.push({
+      // R22: nama modifier ikut disertakan (D22 butuh badan modifier by name).
+      name: m[1],
       startLine: lineOfSrc(src, m.index),
       endLine: lineOfSrc(src, end),
       paramNames,
@@ -3045,6 +4049,3080 @@ function findDeadConfigVars(source) {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Detektor empty-sublist-proof-advances-height (detektor ke-21, kelas K-1,
+// sesi 20:38 WIB 2026-11-18 — Hyperbridge EcdsaBeefy.verifyParachainHeaderProof
+// + verify() + HandlerV2.handleConsensus; wasit sesi BB sore 18 Nov 2026:
+// Low, liveness/censorship, $0 — BUKAN kandidat submit).
+// Detektor level-FILE: flag bila SATU file memuat ketiganya:
+//   (A) verifikasi bukti yang dilewati bila sub-daftar kosong — gerbang
+//       panjang-positif (`len > 0`, `len != 0`, `len >= 1`, `0 < len`,
+//       bentuk `.length` langsung, atau gabungan `&&`) yang badannya
+//       memanggil verifikasi (`*verify*` bukan `emit`, atau
+//       `calculate/compute/check*Root`) — tanpa guard panjang-positif /
+//       zero-revert / else-revert-return di fungsi gerbang ATAU pemanggilnya;
+//   (B) kemajuan height monotonik — penugasan ke member `.latestHeight`
+//       (atau nama height sekelas: currentHeight/lastHeight/latestBlock/
+//       latestBlockNumber), bentuk `=`, `+=`, `++`, atau struct-literal
+//       `latestHeight: <blockNumber>` — DI LUAR badan gerbang (A);
+//   (C) penolakan stale — `if (H >= B)` / `if (B <= H)` (B = blockNumber
+//       atau var darinya) yang return/revert, atau `require(B > H)` /
+//       `require(H < B)`; `>` saja TIDAK dihitung (proof blok sama lolos).
+// Serta (D) keterkaitan jalur: fungsi stale-check harus SAMA dengan, atau
+// memanggil langsung, fungsi gerbang dan fungsi penugasan height.
+// Mekanisme persis (EcdsaBeefy.sol @ 3cd7d227): proof BEEFY valid dengan
+// `parachains = []` → verifyParachainHeaderProof mengembalikan array
+// kosong tanpa verifikasi (len == 0 → blok `if (len > 0)` dilewati) →
+// verifyMmrUpdateProof tetap `trustedState.latestHeight = latestHeight`
+// → proof jujur blok yang sama kena stale-check di verify() dan
+// handleConsensus() early-return → commitment blok itu hilang (pesan
+// tertunda sampai commitment berikut). Dampak: sensor satu interval
+// komitmen per tx penyerang (biaya gas verifikasi ECDSA); pulih via
+// commitment berikut.
+// Severity Low — mengikuti klasifikasi wasit K-1. Satu kandidat per file.
+// KALIBRASI R21.1 (wasit, review Kiro Opus 5.5 sesi 8da7a082 — vonis NEEDS
+// WORK, 42 kasus: 8 benar, 15 FP, 19 FN; probe lokal /tmp/probe-d21.js
+// membuktikan 22/24 klaim): F1 guard gerbang `.length` langsung; F2 guard
+// diperlebar (require/assert, `!= 0`, `< 1`, `if (len==0) {revert}`,
+// escapeRegExp untuk `$`); F3 guard di pemanggil; F4 else rapuh (tanpa
+// kurawal + komentar + else-return); F5 keterkaitan jalur (D) + advance
+// di dalam gerbang bukan flag (G13); F7 `emit Verify*` bukan verifikasi;
+// F8 filter deklarasi berbasis statement; F9 bentuk gerbang diperlebar
+// (!=, >= 1, tanpa kurawal, 0 < .length, `&&`); F10 lenDeclRe 1-huruf +
+// panggilan fungsi; F11 `calculateRoot` sebagai verifikasi; F12 nama
+// height diperlebar; F13 stale-check diperlebar (tanpa kurawal, require,
+// terbalik, var blockNumber); F14 `+=`/`++`/struct-literal; F6 (daftar
+// kosong terikat komitmen) masuk toVerify, tanpa perubahan kode; F15
+// (lingkup level-file) + F16-bukti (evidence SUDAH memuat nomor baris —
+// temuan Kiro artefak tempelan terpotong; fallback nama kontrak bila
+// gerbang di modifier tetap batas diketahui).
+// Batas diketahui: pola lintas-file (verifikasi di file A, height di file
+// B) tidak terlihat; panggilan tak langsung (via perantara) tidak
+// dihitung keterkaitan; `>` saja di stale-check sengaja tidak dihitung.
+// ---------------------------------------------------------------------------
+const D21_HEIGHT_NAMES = ["latestHeight", "currentHeight", "lastHeight", "latestBlock", "latestBlockNumber"];
+
+function d21EscapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function detectEmptySublistProofAdvancesHeight(source, fileName, idStart) {
+  if (/(^|\/)(mocks?|test|tests?)\//i.test(fileName)
+    || /\.t\.sol$/i.test(fileName)
+    || /(^|\/)(Mock|Harness)[A-Za-z0-9_]*\.sol$/i.test(fileName)) return [];
+  const clean = stripComments(source);
+  const lineOf = (idx) => clean.slice(0, idx).split("\n").length - 1;
+  const heightAlt = D21_HEIGHT_NAMES.join("|");
+  // Util: isi blok `{...}` yang dimulai di idx (posisi `{`), kurung
+  // seimbang; kembalikan { text, endIndex } atau null.
+  function braceBlock(idx) {
+    let d = 0;
+    for (let j = idx; j < clean.length; j++) {
+      if (clean[j] === "{") d++;
+      else if (clean[j] === "}") {
+        d--;
+        if (d === 0) return { text: clean.slice(idx, j + 1), endIndex: j };
+      }
+    }
+    return null;
+  }
+  // Util: isi `(...)` yang dimulai di idx (posisi `(`), paren seimbang.
+  function parenContent(idx) {
+    let d = 0;
+    for (let j = idx; j < clean.length; j++) {
+      if (clean[j] === "(") d++;
+      else if (clean[j] === ")") {
+        d--;
+        if (d === 0) return { text: clean.slice(idx + 1, j), endIndex: j };
+      }
+    }
+    return null;
+  }
+  // Util: kondisi + badan `if (...)` yang dimulai di idx (posisi `if`).
+  // R21.1 (F9/F13): badan boleh satu statement tanpa kurawal (sampai `;`).
+  function ifParts(idx) {
+    const open = clean.indexOf("(", idx);
+    if (open === -1) return null;
+    const pc = parenContent(open);
+    if (!pc) return null;
+    const cond = pc.text;
+    let k = pc.endIndex + 1;
+    while (k < clean.length && /\s/.test(clean[k])) k++;
+    if (clean[k] === "{") {
+      const blk = braceBlock(k);
+      if (!blk) return null;
+      return { cond, bodyStart: k, body: blk.text, endIndex: blk.endIndex, braced: true };
+    }
+    const semi = clean.indexOf(";", k);
+    if (semi === -1) return null;
+    return { cond, bodyStart: k, body: clean.slice(k, semi + 1), endIndex: semi, braced: false };
+  }
+  const fns = extractFunctions(clean);
+  function fnAt(idx) {
+    for (const fn of fns) {
+      if (idx >= fn.startIndex && idx <= fn.endIndex) return fn;
+    }
+    return null;
+  }
+  function callsFn(caller, callee) {
+    if (!caller || !callee) return false;
+    if (caller === callee) return true;
+    return new RegExp("\\b" + d21EscapeRegExp(callee.name) + "\\s*\\(").test(caller.body);
+  }
+  // Peta variabel panjang: `len = <expr>.length` (R21.1 F10: expr 1-huruf
+  // + panggilan fungsi `paras(proof).length` ikut dikenali).
+  const lenVars = new Map();
+  const lenDeclRe = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_][A-Za-z0-9_$\.\[\]\(\)]*)\.length\b/g;
+  let m;
+  while ((m = lenDeclRe.exec(clean)) !== null) {
+    lenVars.set(m[1], m[2]);
+  }
+  // Peta variabel nomor blok: `x = <expr>.blockNumber` (R21.1 F13/N10).
+  const blockNumVars = new Set();
+  const bnDeclRe = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*[\w\.\[\]\(\)]+\.blockNumber\b/g;
+  while ((m = bnDeclRe.exec(clean)) !== null) {
+    blockNumVars.add(m[1]);
+  }
+  function isBlockNumExpr(expr) {
+    const e = expr.trim();
+    if (/\bblockNumber\b/.test(e)) return true;
+    for (const v of blockNumVars) {
+      if (new RegExp("\\b" + d21EscapeRegExp(v) + "\\b").test(e)) return true;
+    }
+    return false;
+  }
+  // --- (A) length-gated verification -------------------------------------
+  // Satu suku `&&` adalah gerbang bila ia SALAH saat panjang == 0
+  // (R21.1 F9: `> 0`, `!= 0`, `>= 1`, `0 < x`, `> 1`, `== 1`, gabungan
+  // `&&` — semuanya melewatkan verifikasi untuk daftar kosong).
+  function lenOfExpr(expr) {
+    const t = expr.trim();
+    let mm = t.match(/^([A-Za-z_][A-Za-z0-9_$]*)$/);
+    if (mm && lenVars.has(mm[1])) return { lenVar: mm[1], listExpr: lenVars.get(mm[1]) };
+    mm = t.match(/^([A-Za-z_][A-Za-z0-9_$\.\[\]\(\)]*)\.length$/);
+    if (mm) return { lenVar: null, listExpr: mm[1] };
+    return null;
+  }
+  function gatePart(part) {
+    const p = part.trim();
+    const m = p.match(/^(.*?)\s*(>=|<=|>|<|!=|==)\s*(.*?)$/);
+    if (!m) return null;
+    const a = m[1].trim(), op = m[2], b = m[3].trim();
+    const numA = /^\d+$/.test(a), numB = /^\d+$/.test(b);
+    let lenSide = null, num = 0, flipped = false;
+    const la = lenOfExpr(a), lb = lenOfExpr(b);
+    if (la && numB) { lenSide = la; num = parseInt(b, 10); }
+    else if (lb && numA) { lenSide = lb; num = parseInt(a, 10); flipped = true; }
+    else return null;
+    const effOp = flipped
+      ? { ">": "<", "<": ">", ">=": "<=", "<=": ">=", "!=": "!=", "==": "==" }[op]
+      : op;
+    let falseAt0 = false;
+    if (effOp === ">") falseAt0 = num >= 0;
+    else if (effOp === ">=") falseAt0 = num >= 1;
+    else if (effOp === "!=") falseAt0 = num === 0;
+    else if (effOp === "==") falseAt0 = num !== 0;
+    else if (effOp === "<") falseAt0 = num <= 0;
+    else if (effOp === "<=") falseAt0 = num < 0;
+    return falseAt0 ? lenSide : null;
+  }
+  // Belah kondisi pada `&&` level-teratas (R21.1 F9/N20).
+  function splitTopAnd(cond) {
+    const parts = [];
+    let depth = 0, start = 0;
+    for (let i = 0; i < cond.length; i++) {
+      const ch = cond[i];
+      if (ch === "(") depth++;
+      else if (ch === ")") depth--;
+      else if (depth === 0 && ch === "&" && cond[i + 1] === "&") {
+        parts.push(cond.slice(start, i));
+        i++;
+        start = i + 1;
+      }
+    }
+    parts.push(cond.slice(start));
+    return parts;
+  }
+  // Guard panjang-positif di satu scope teks (R21.1 F1/F2/F3): require /
+  // assert `X > 0 | != 0 | >= 1` (X = var panjang atau `<expr>.length`),
+  // atau `if (X == 0 | <= 0 | < 1) revert/return` (dipar parsing, bukan
+  // regex — bentuk `{ revert ...; }` ikut tertangkap, F2/G06).
+  function scopeHasZeroGuard(text, exprs) {
+    const re = /\bif\s*\(/g;
+    let mm2;
+    while ((mm2 = re.exec(text)) !== null) {
+      const open = text.indexOf("(", mm2.index);
+      if (open === -1) continue;
+      let d = 0, j = open, ok = false;
+      for (; j < text.length; j++) {
+        if (text[j] === "(") d++;
+        else if (text[j] === ")") { d--; if (d === 0) { ok = true; break; } }
+      }
+      if (!ok) continue;
+      const cond = text.slice(open + 1, j).trim();
+      let k = j + 1;
+      while (k < text.length && /\s/.test(text[k])) k++;
+      let body = "";
+      if (text[k] === "{") {
+        let dd = 0, e = k;
+        for (; e < text.length; e++) {
+          if (text[e] === "{") dd++;
+          else if (text[e] === "}") { dd--; if (dd === 0) break; }
+        }
+        body = text.slice(k, e + 1);
+      } else {
+        const semi = text.indexOf(";", k);
+        if (semi === -1) continue;
+        body = text.slice(k, semi + 1);
+      }
+      for (const x of exprs) {
+        const zr = new RegExp("^\\s*" + x + "\\s*(?:==|<=)\\s*0\\s*$");
+        const lt = new RegExp("^\\s*" + x + "\\s*<\\s*1\\s*$");
+        if ((zr.test(cond) || lt.test(cond)) && /\b(?:revert|return)\b/.test(body)) return true;
+      }
+    }
+    return false;
+  }
+  function hasLengthGuard(scopeText, lenVar, listExpr) {
+    const exprs = [];
+    if (lenVar) exprs.push(d21EscapeRegExp(lenVar));
+    if (listExpr) exprs.push(d21EscapeRegExp(listExpr) + "\\.length");
+    for (const x of exprs) {
+      const posRe = new RegExp("(?:require|assert)\\s*\\(\\s*(?:" + x + "\\s*(?:>|!=)\\s*0|" + x + "\\s*>=\\s*1|0\\s*(?:<|!=)\\s*" + x + ")\\s*[,)]");
+      if (posRe.test(scopeText)) return true;
+    }
+    return scopeHasZeroGuard(scopeText, exprs);
+  }
+  // Panggilan verifikasi di badan gerbang (R21.1 F7/F11): `*verify*` yang
+  // BUKAN `emit`, atau `calculate/compute/check*Root`.
+  function bodyHasVerification(body) {
+    const vRe = /\b\w*[Vv]erify\w*\s*\(/g;
+    let vm;
+    while ((vm = vRe.exec(body)) !== null) {
+      const before = body.slice(Math.max(0, vm.index - 12), vm.index);
+      if (/emit\s*$/.test(before)) continue;
+      return true;
+    }
+    if (/\b\w*(?:calculate|compute|check)\w*Root\w*\s*\(/.test(body)) return true;
+    return false;
+  }
+  let gate = null;
+  const ifRe = /\bif\s*\(/g;
+  while ((m = ifRe.exec(clean)) !== null) {
+    const parts = ifParts(m.index);
+    if (!parts) continue;
+    let found = null;
+    for (const part of splitTopAnd(parts.cond)) {
+      found = gatePart(part);
+      if (found) break;
+    }
+    if (!found) continue;
+    if (!bodyHasVerification(parts.body)) continue;
+    // Guard di fungsi gerbang + di pemanggilnya (R21.1 F3): guard pada
+    // listExpr dicari juga di fungsi yang memanggil fungsi gerbang.
+    const fn = fnAt(m.index);
+    const scopes = [];
+    if (fn) {
+      scopes.push({ text: fn.body, lenVar: found.lenVar, listExpr: found.listExpr });
+      for (const other of fns) {
+        if (other !== fn && callsFn(other, fn)) {
+          scopes.push({ text: other.body, lenVar: null, listExpr: found.listExpr });
+        }
+      }
+    } else {
+      scopes.push({ text: clean, lenVar: found.lenVar, listExpr: found.listExpr });
+    }
+    let guarded = false;
+    for (const sc of scopes) {
+      if (hasLengthGuard(sc.text, sc.lenVar, sc.listExpr)) { guarded = true; break; }
+    }
+    if (guarded) continue;
+    // Else-guard (R21.1 F4): `else` sesudah blok — kurawal / tanpa kurawal /
+    // `else { return ...; }` ikut dihitung; komentar sudah jadi spasi.
+    let k = parts.endIndex + 1;
+    while (k < clean.length && /\s/.test(clean[k])) k++;
+    if (clean.slice(k, k + 4) === "else" && !/[A-Za-z0-9_$]/.test(clean[k + 4] || "")) {
+      let e = k + 4;
+      while (e < clean.length && /\s/.test(clean[e])) e++;
+      let elseBody = "";
+      if (clean[e] === "{") {
+        const blk = braceBlock(e);
+        elseBody = blk ? blk.text : "";
+      } else {
+        const semi = clean.indexOf(";", e);
+        elseBody = semi === -1 ? "" : clean.slice(e, semi + 1);
+      }
+      if (/\b(?:revert|return)\b/.test(elseBody)) continue;
+    }
+    gate = { idx: m.index, fn, lenVar: found.lenVar, listExpr: found.listExpr, line: lineOf(m.index), bodyStart: parts.bodyStart, endIndex: parts.endIndex };
+    break;
+  }
+  if (!gate) return [];
+  // --- (B) kemajuan height monotonik --------------------------------------
+  // R21.1 F12: nama height diperlebar; F14: `+=`/`++`/struct-literal;
+  // F8: filter deklarasi berbasis statement; F5/G13: advance DI DALAM
+  // badan gerbang bukan kemajuan (perbaikan yang benar).
+  let advance = null;
+  const advMemberRe = new RegExp("\\.\\s*(?:" + heightAlt + ")\\s*(?:=(?!=)|\\+=|\\+\\+)", "g");
+  while ((m = advMemberRe.exec(clean)) !== null) {
+    if (m.index >= gate.bodyStart && m.index <= gate.endIndex) continue;
+    advance = { idx: m.index, line: lineOf(m.index) };
+    break;
+  }
+  if (!advance) {
+    const advPlainRe = new RegExp("\\b(?:" + heightAlt + ")\\s*(?:=(?!=)|\\+=|\\+\\+)", "g");
+    while ((m = advPlainRe.exec(clean)) !== null) {
+      if (m.index >= gate.bodyStart && m.index <= gate.endIndex) continue;
+      // Abaikan bila didahului `.` (sudah tercakup bentuk member).
+      if (clean[m.index - 1] === ".") continue;
+      // Filter deklarasi (F8): kata kunci tipe/visibilitas di statement
+      // yang sama sebelum match (deklarasi multi-baris ikut tertangkap).
+      const stmtStart = Math.max(clean.lastIndexOf(";", m.index), clean.lastIndexOf("{", m.index), clean.lastIndexOf("}", m.index)) + 1;
+      const before = clean.slice(stmtStart, m.index);
+      if (/\b(?:uint\d*|int\d*|bytes\d*|address|bool|string|public|private|internal|constant|immutable)\b/.test(before)) continue;
+      advance = { idx: m.index, line: lineOf(m.index) };
+      break;
+    }
+  }
+  if (!advance) {
+    // Struct-literal: `latestHeight: <expr bernomor blok>` (N16).
+    const advStructRe = new RegExp("\\b(?:" + heightAlt + ")\\s*:\\s*[^,}\\)]*", "g");
+    while ((m = advStructRe.exec(clean)) !== null) {
+      if (m.index >= gate.bodyStart && m.index <= gate.endIndex) continue;
+      if (!isBlockNumExpr(m[0].split(":").slice(1).join(":"))) continue;
+      advance = { idx: m.index, line: lineOf(m.index) };
+      break;
+    }
+  }
+  if (!advance) return [];
+  // --- (C) penolakan stale --------------------------------------------------
+  // R21.1 F13: if tanpa kurawal, require, bentuk terbalik, var blockNumber.
+  let stale = null;
+  const ifRe2 = /\bif\s*\(/g;
+  while ((m = ifRe2.exec(clean)) !== null) {
+    const parts = ifParts(m.index);
+    if (!parts) continue;
+    const cond = parts.cond;
+    const hM = cond.match(new RegExp("\\b(?:" + heightAlt + ")\\b"));
+    if (!hM) continue;
+    const hName = hM[0];
+    const hEsc = d21EscapeRegExp(hName);
+    // Nama height boleh berkualifikasi member (`s.latestHeight`,
+    // `cfg.latestHeight`) — R21.1b (probe N12/N13).
+    const hQual = "(?:[A-Za-z_][A-Za-z0-9_$]*\\.)*" + hEsc + "\\b";
+    // Bentuk langsung: `H >= B` / terbalik `B <= H` (B bernomor blok).
+    const directRe = new RegExp(hQual + "\\s*>=\\s*[^;{}]*");
+    const revRe = new RegExp("[^;{}]*?<=\\s*" + hQual);
+    let hit = false;
+    const dm = cond.match(directRe);
+    if (dm && isBlockNumExpr(dm[0].split(">=").slice(1).join(">="))) hit = true;
+    if (!hit) {
+      const rm = cond.match(revRe);
+      if (rm && isBlockNumExpr(rm[0].split("<=").slice(0, -1).join("<="))) hit = true;
+    }
+    if (!hit) continue;
+    if (!/\breturn\b|\brevert\b/.test(parts.body)) continue;
+    stale = { idx: m.index, line: lineOf(m.index) };
+    break;
+  }
+  if (!stale) {
+    // Bentuk require: `require(B > H)` / `require(H < B)` (ketat — `>=`
+    // membolehkan blok sama, jadi BUKAN sensor).
+    const reqRe = /\brequire\s*\(/g;
+    while ((m = reqRe.exec(clean)) !== null) {
+      const pc = parenContent(m.index + "require".length);
+      if (!pc) continue;
+      const cond = pc.text;
+      const hM = cond.match(new RegExp("\\b(?:" + heightAlt + ")\\b"));
+      if (!hM) continue;
+      const hEsc = d21EscapeRegExp(hM[0]);
+      const hQual = "(?:[A-Za-z_][A-Za-z0-9_$]*\\.)*" + hEsc + "\\b";
+      const gtRe = new RegExp("^(?:[^,()]*?)>\\s*" + hQual);
+      const ltRe = new RegExp("^\\s*" + hQual + "\\s*<\\s*([^,()]*?)(?:,|$)");
+      let hit = false;
+      const gm = cond.match(gtRe);
+      if (gm && isBlockNumExpr(gm[0].split(">").slice(0, -1).join(">"))) hit = true;
+      if (!hit) {
+        const lm = cond.match(ltRe);
+        if (lm && isBlockNumExpr(lm[1])) hit = true;
+      }
+      if (!hit) continue;
+      stale = { idx: m.index, line: lineOf(m.index) };
+      break;
+    }
+  }
+  if (!stale) return [];
+  // --- (D) keterkaitan jalur (R21.1 F5) -------------------------------------
+  // Fungsi stale-check harus SAMA dengan, atau memanggil langsung, fungsi
+  // gerbang dan fungsi penugasan height. Null (mis. gerbang di modifier)
+  // dianggap terikat (konservatif).
+  const gateFn = gate.fn;
+  const advanceFn = fnAt(advance.idx);
+  const staleFn = fnAt(stale.idx);
+  const legGate = !staleFn || !gateFn || staleFn === gateFn || callsFn(staleFn, gateFn);
+  const legAdv = !staleFn || !advanceFn || staleFn === advanceFn || callsFn(staleFn, advanceFn);
+  if (!legGate || !legAdv) return [];
+  const contractName = (clean.match(/\bcontract\s+([A-Za-z_][A-Za-z0-9_$]*)/) || [])[1]
+    || fileName.split("/").pop();
+  const fnName = gateFn ? gateFn.name : contractName;
+  return [normalizeCandidate({
+    id: "FA-" + String(idStart).padStart(3, "0"),
+    detector: "empty-sublist-proof-advances-height",
+    title: "Bukti konsensus sub-daftar kosong memajukan height + stale-rejection menyensor bukti jujur",
+    location: { file: fileName, function: fnName },
+    hypothesis: "Verifikasi bukti dilewati bila sub-daftar kosong (`if (len > 0)`, baris "
+      + (gate.line + 1) + ") — tanpa bukti, tanpa commitment tersimpan — tapi height tetap maju ("
+      + "penugasan height, baris " + (advance.line + 1) + "); proof jujur untuk blok yang sama "
+      + "kemudian ditolak stale-check (baris " + (stale.line + 1) + ") sehingga commitment blok itu hilang "
+      + "sampai commitment berikutnya.",
+    preconditions: "Penyerang mengirim proof konsensus valid (tanda tangan quorum) dengan sub-daftar kosong "
+      + "SEBELUM relayer jujur mengirim proof blok yang sama; relayer jujur tidak bisa memaksa commitment "
+      + "blok itu masuk sesudah height maju.",
+    impact: "Sensor satu interval komitmen per tx penyerang (liveness/censorship, bukan fund-loss): pesan "
+      + "ISMP untuk blok itu tertunda sampai commitment berikut; header masih bisa dibuktikan ulang di "
+      + "commitment berikut selama belum tersupersi. Biaya penyerang = gas verifikasi ECDSA per interval.",
+    severityGuess: "Low",
+    evidence: "Gerbang panjang-kosong baris " + (gate.line + 1) + " (`if ("
+      + (gate.lenVar ? gate.lenVar + " > 0" : gate.listExpr + ".length > 0")
+      + ")` berisi panggilan verifikasi, tanpa guard require/revert bila kosong)"
+      + "; penugasan height baris " + (advance.line + 1)
+      + "; stale-check baris " + (stale.line + 1) + " (`latestHeight >= ...blockNumber` + return/revert)"
+      + "; keterkaitan jalur: stale-check memanggil fungsi gerbang + fungsi penugasan height.",
+    toVerify: ["Baca fungsi verifikasi utuh: apakah daftar kosong benar-benar mengembalikan tanpa bukti DAN tanpa revert",
+      "cek apakah height maju di jalur yang sama (state yang sama dengan stale-check)",
+      "cek apakah commitment sub-daftar yang kosong itu memang hilang (bukan disimpan di tempat lain)",
+      "cek apakah sub-daftar kosong terikat ke komitmen (hash/leafCount) — bila kosong itu sah secara kriptografis, kandidat ini gugur",
+      "PoC fork butuh fixture bukti konsensus asli (tanda tangan validator 2/3 + MMR proof blok relay nyata) — tanpa itu, verifikasi berhenti di code-trace"],
+    source: "pattern-scan",
+  })];
+}
+
+// ---------------------------------------------------------------------------
+// Detektor ke-22: sandwich JIT reward-accrual (kelas VENO-C2 YbEth, sesi BB
+// pagi 19 Nov 2026 — Medium wasit, PoC-verified Foundry 4/4).
+// Pola ekonomi temporal, tiga kaki dalam SATU file atas var pool yang sama:
+//   (a) ACCRUAL: fungsi external/public menambah var pool (`POOL += <param
+//       atau msg.value>`) TANPA mint share — reward masuk pool, harga share
+//       naik untuk semua pemegang saat itu juga.
+//   (b) STAKE: fungsi external/public payable yang mint share pada rate
+//       saat itu (`_mint` + `POOL += msg.value`) — pintu masuk sebelum accrual.
+//   (c) EXIT: fungsi external/public yang menghitung rate dari pool/total
+//       share (`(POOL * X) / totalSupply`), MENGUNCI rate itu (field struct
+//       `.exchangeRate =` / literal `exchangeRate:` / dipakai di payout fungsi
+//       yang sama) dan membakar share (`_burn` / `POOL -= ...`) — keluar
+//       pada rate pasca-accrual.
+// Severity: Medium bila fee keluar default-0 (deklarasi tanpa initializer
+// atau `= 0`) atau TIDAK ADA perhitungan fee di file ini (tanpa friksi);
+// Low bila fee nonzero-initialized atau fee dipakai tapi deklarasinya tidak
+// ditemukan di file ini (nilai live tak diketahui — cek live).
+// Kalibrasi R22 (sesi #36, review Kiro Opus 5.5 "Audit D22 JIT Reward
+// Accrual", NEEDS WORK F1-F18): 27/28 probe wasit terhadap kode asli
+// membuktikan klaim Kiro (F8-A3 gugur — alias supply sudah ditangani;
+// klaim "severity YbEth asli tidak berjalan" gugur — test 56-2/56-2b
+// membuktikan fee terbaca). Perbaikan: denominator fee boleh literal
+// (F1), nama fee bare/kapital (F2), operand terbalik (F3), constant ikut
+// dinilai (F4), assignment ctor/initialize menang atas initializer (F5),
+// fee dinilai per fungsi exit/rate, bukan first-wins file-wide (F6),
+// zero-init 0x00/0 ether/0e18 (F7), formula rate via jalan-mundur paren +
+// mulDiv + pembagi _totalSupply/getTotalShares (F8), mint/burn gaya Lido
+// (F9), accrual `POOL = POOL + X` + alias lokal param-derived (F10), kunci
+// rate digeneralisasi (field apa pun / payout-value, F11 + varian redeem
+// langsung), alias lokal pool diselesaikan ke state var (F12), emit bukan
+// gate + sufiks holding berbatas (F13), nama holding + gate modifier (F14),
+// kaki satu kontrak (F15), mint/burn tak langsung via helper (F16),
+// receive()/fallback() sbg kaki accrual (F17), pengecualian Mock|Harness
+// case-sensitive (F18b). DITOLAK: commission/tax sbg nama fee (terlalu
+// luas); F18a (lineOf DIPAKAI di hypothesis/evidence — format location
+// tanpa nomor baris = konvensi proyek).
+// Batas diketahui (v2): jadwal accrual (keteraturan bot) TIDAK bisa dibaca
+// statis — wajib cek live (event AccrueReward); var pool warisan (storage
+// file lain, mis. YbEthStorage) dikenali lewat pola nama totalPooled*/dst.,
+// bukan deklarasi; fee yang dideklarasikan di file lain hanya terlihat lewat
+// opts.projectStateVarInits (mode proyek); holding-period HANYA dikenali
+// lewat nama (stakeTime/depositTime/dst.); rate dua langkah (via helper
+// convertToShare di fungsi lain) tidak dilacak; gate di helper yang dipanggil
+// exit (bukan modifier) tidak dilacak; fee var lokal di dalam fungsi tidak
+// diselesaikan nilainya (unknown -> Low).
+// ---------------------------------------------------------------------------
+const D22_HOLDING_NAMES = ["stakeTime", "depositTime", "lastStake", "stakedAt", "stakeTimestamp", "depositTimestamp", "lastDeposit", "stakeStart", "stakedSince", "lastStakeTime", "depositedAt", "depositAt", "stakeAt"];
+const D22_SHARE_TOTALS = ["totalSupply", "totalShares", "totalShareAmount"];
+const D22_POOL_NAME_RE = /^(totalPooled|totalAssets|totalUnderlying|totalStaked|totalDeposited|totalValueLocked)/i;
+
+function d22EscapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Initializer state var dari teks deklarasi di sekitar nameIndex: kembalikan
+// { found, hasInit, init } — init = teks sesudah `=` sampai `;` (atau null).
+function d22StateVarInit(clean, nameIndex) {
+  const semi = clean.indexOf(";", nameIndex);
+  if (semi === -1) return { found: false, hasInit: false, init: null };
+  const seg = clean.slice(nameIndex, semi);
+  const m = seg.match(/^[A-Za-z_][A-Za-z0-9_$]*\s*(?:=\s*([\s\S]+))?$/);
+  if (!m) return { found: false, hasInit: false, init: null };
+  return { found: true, hasInit: !!m[1], init: m[1] ? m[1].trim() : null };
+}
+
+function d22IsZeroInit(init) {
+  if (init === null || init === undefined) return true;
+  const t = init.trim().replace(/_/g, "");
+  // R22 (F7): 0x00, 0 ether, 0e18, 0.0 ikut nol (dulu hanya "0"/"0x0").
+  return /^(0[xX]0+|0+(\.0+)?([eE]\d+)?(\s*(ether|wei|gwei|finney|szabo))?)$/.test(t);
+}
+
+// Deklarasi state var SEJATI (R22, F12): scanStateVarDecls (regex) ikut
+// membaca lokal di badan fungsi (`uint256 x = ...;` di dalam fn) — saring
+// ke deklarasi di luar semua badan fungsi. Tanpa ini, lokal bernama
+// totalPooledEth/pooled membayangi state var dan menggagalkan resolusi
+// alias pool (probe A23) serta mencemari initMap fee (lokal `fee = 0`
+// terbaca seolah state var).
+function d22TrueStateDecls(clean) {
+  const spans = extractFunctions(clean).concat(d22SpecialFns(clean))
+    .map((fn) => ({ start: fn.startIndex, end: fn.endIndex }));
+  return scanStateVarDecls(clean).filter((d) => !spans.some((s) => d.nameIndex >= s.start && d.nameIndex <= s.end));
+}
+
+// Peta nama state var -> info initializer, dari SATU file (dipakai D22
+// file-lokal; runProjectPipeline membangun gabungan proyeknya).
+function d22StateVarInitMap(clean) {
+  const map = new Map();
+  for (const d of d22TrueStateDecls(clean)) {
+    if (map.has(d.name)) continue;
+    const info = d22StateVarInit(clean, d.nameIndex);
+    map.set(d.name, { hasInit: info.hasInit, init: info.init, constant: d.constant });
+  }
+  return map;
+}
+
+// R22 (F17): receive()/fallback() tidak ditangkap extractFunctions (tanpa
+// kata kunci `function`) — bangun pseudo-fn agar bisa jadi kaki accrual
+// (receive() payable yang menambah pool tanpa mint). Bentuk dikembalikan
+// mengikuti extractFunctions (body = teks utuh dari kata kunci s/d `}`).
+function d22SpecialFns(clean) {
+  const out = [];
+  const re = /\b(receive|fallback)\s*\(/g;
+  let m;
+  while ((m = re.exec(clean)) !== null) {
+    let depth = 0, j = m.index + m[0].length - 1, close = -1;
+    for (; j < clean.length; j++) {
+      if (clean[j] === "(") depth++;
+      else if (clean[j] === ")") { depth--; if (depth === 0) { close = j; break; } }
+    }
+    if (close === -1) continue;
+    let brace = -1;
+    for (let k = close + 1; k < clean.length; k++) {
+      if (clean[k] === "{") { brace = k; break; }
+      if (clean[k] === ";") break;
+    }
+    if (brace === -1) continue;
+    const end = blockEndIndex(clean, brace);
+    if (end === -1) continue;
+    const mods = clean.slice(close + 1, brace).trim().replace(/\s+/g, " ");
+    out.push({
+      name: m[1],
+      signature: m[1] + "() " + mods,
+      body: clean.slice(m.index, end + 1),
+      startIndex: m.index,
+      endIndex: end,
+      startLine: lineOfSrc(clean, brace),
+      isConstructor: false,
+    });
+  }
+  return out;
+}
+
+function detectJitRewardAccrualSandwich(source, fileName, idStart, opts) {
+  // R22 (F18b): pengecualian nama file (Mock|Harness) case-SENSITIVE —
+  // file produksi seperti HarnessRouter.sol tidak lagi terlewat; direktori
+  // test/mocks tetap case-insensitive.
+  if (/(^|\/)(mocks?|test|tests?)\//i.test(fileName)
+    || /\.t\.sol$/i.test(fileName)
+    || /(^|\/)(Mock|Harness)[A-Za-z0-9_]*\.sol$/.test(fileName)) return [];
+  const clean = stripComments(source);
+  const lineOf = (idx) => clean.slice(0, idx).split("\n").length - 1;
+  const fns = extractFunctions(clean).concat(d22SpecialFns(clean));
+  const stateDecls = d22TrueStateDecls(clean);
+  const stateVarNames = new Set(stateDecls.map((d) => d.name));
+  const initMap = d22StateVarInitMap(clean);
+  const projectInits = (opts && opts.projectStateVarInits) || null;
+  const spans = contractSpans(clean);
+  // R22 (F15): kaki harus satu kontrak — contractOf(null) = fungsi bebas /
+  // file tanpa kontrak (fallback: perilaku file-wide lama).
+  const contractOf = (fn) => {
+    const s = spans.find((sp) => sp.kind !== "interface" && fn.startIndex >= sp.start && fn.startIndex <= sp.end);
+    return s ? s.name : null;
+  };
+  const isCallable = (fn) => /\b(external|public)\b/.test(fn.signature) && !fn.isConstructor;
+  // R22 (F9): mint/burn gaya Lido (_mintShares/.mintShares/bare mint).
+  const hasMint = (body) => /\b_?mint[A-Za-z0-9_$]*\s*\(|\.mint[A-Za-z0-9_$]*\s*\(/.test(body);
+  const hasBurn = (body) => /\b_?burn[A-Za-z0-9_$]*\s*\(|\.burn[A-Za-z0-9_$]*\s*\(/.test(body);
+  // R22 (F16): helper yang memanggil mint/burn — pemanggilnya ikut mint/burn
+  // secara tak langsung (mis. _issueShares -> _mint). Per kontrak.
+  const helperNames = (kind) => {
+    const map = new Map();
+    for (const fn of fns) {
+      const c = contractOf(fn);
+      if (!map.has(c)) map.set(c, new Set());
+      if (kind === "mint" ? hasMint(fn.body) : hasBurn(fn.body)) map.get(c).add(fn.name);
+    }
+    return map;
+  };
+  const mintHelpers = helperNames("mint");
+  const burnHelpers = helperNames("burn");
+  const callsHelper = (fn, map) => {
+    const set = map.get(contractOf(fn));
+    if (!set) return false;
+    for (const n of set) {
+      if (n !== fn.name && new RegExp("\\b" + d22EscapeRegExp(n) + "\\s*\\(").test(fn.body)) return true;
+    }
+    return false;
+  };
+  const hasMintAny = (fn) => hasMint(fn.body) || callsHelper(fn, mintHelpers);
+  const hasBurnAny = (fn) => hasBurn(fn.body) || callsHelper(fn, burnHelpers);
+  // Var pool sah: dideklarasi di file ini ATAU bernama seperti total pool
+  // (var warisan dari file storage lain — mis. totalPooledEth YbEth yang
+  // dideklarasi di YbEthStorage.sol, bukan di YbEth.sol).
+  const isPoolVar = (name) => stateVarNames.has(name) || D22_POOL_NAME_RE.test(name);
+  // Identifier total-share per fungsi: nama kanonik + lokal yang di-assign
+  // dari totalSupply()/totalShares().
+  function shareTotals(fn) {
+    const set = new Set(D22_SHARE_TOTALS);
+    const re = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*(?:[A-Za-z_][A-Za-z0-9_$\.]*\.)?(?:totalSupply|totalShares)\s*\(\s*\)/g;
+    let m;
+    while ((m = re.exec(fn.body)) !== null) set.add(m[1]);
+    return set;
+  }
+  // Formula rate (R22, F8): cari situs pembagian `/ TOTAL` (TOTAL = total
+  // share; pembagi boleh dalam paren / berupa getTotalShares()), lalu jalan
+  // mundur menyeimbangkan paren untuk mengambil numerator — paren bersarang
+  // (A1), mulDiv (A27), dan pembagi _totalSupply/getTotalShares() (A24)
+  // ikut tertangkap; alias lokal total (A3) sudah ditangani shareTotals.
+  // Kembalikan { pool, total, rateVar, index } atau null.
+  function rateFormula(fn) {
+    const totals = new Set(shareTotals(fn));
+    totals.add("_totalSupply");
+    totals.add("_totalShares");
+    const totalAlt = [...totals].map(d22EscapeRegExp).join("|");
+    const totalRe = totalAlt + "|_?getTotalShares\\s*\\(\\s*\\)|_?getTotalSupply\\s*\\(\\s*\\)";
+    // Selesaikan satu identifier pool ke state var (R22, F12): bila itu
+    // lokal/param, cari aliasnya (`lokal = STATEVAR;`) — alias dicek DULU
+    // (nama lokal boleh netral, mis. `pooled = totalStaked`); tanpa alias
+    // -> null (shadowing murni dilewati).
+    function resolvePool(id) {
+      if (!stateVarNames.has(id)) {
+        const params = new Set(paramNamesOf(fn).filter(Boolean));
+        const isLocal = params.has(id)
+          || new RegExp("\\b(?:uint\\d*|int\\d*|address|bool|bytes\\d*|string)\\s+" + d22EscapeRegExp(id) + "\\b").test(fn.body);
+        if (isLocal) {
+          const am = fn.body.match(new RegExp("\\b" + d22EscapeRegExp(id) + "\\s*=\\s*([A-Za-z_][A-Za-z0-9_$]*)\\s*;"));
+          if (am && (stateVarNames.has(am[1]) || D22_POOL_NAME_RE.test(am[1]))) return am[1];
+          return null;
+        }
+      }
+      return isPoolVar(id) ? id : null;
+    }
+    // Var yang di-assign oleh formula: `IDENT = <formula>` di statement yang
+    // sama (toleran terhadap bentuk datar `amount = share * POOL / TOTAL`).
+    function rateVarBefore(idx) {
+      const stmtStart = Math.max(fn.body.lastIndexOf(";", idx - 1), fn.body.lastIndexOf("{", idx - 1), fn.body.lastIndexOf("}", idx - 1)) + 1;
+      const prefix = fn.body.slice(stmtStart, idx);
+      const am = prefix.match(/([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*[^;=]*$/);
+      return am ? am[1] : null;
+    }
+    // Teks numerator sebelum situs pembagian di posisi slashIdx.
+    function numeratorBefore(slashIdx) {
+      let j = slashIdx - 1;
+      while (j >= 0 && /\s/.test(fn.body[j])) j--;
+      if (j < 0) return null;
+      if (fn.body[j] === ")") {
+        let depth = 0;
+        for (let k = j; k >= 0; k--) {
+          if (fn.body[k] === ")") depth++;
+          else if (fn.body[k] === "(") {
+            depth--;
+            if (depth === 0) return { text: fn.body.slice(k + 1, j), start: k };
+          }
+        }
+        return null;
+      }
+      const m = fn.body.slice(0, j + 1).match(/([A-Za-z_][A-Za-z0-9_$\.\[\]]+)\s*$/);
+      return m ? { text: m[1], start: j + 1 - m[1].length } : null;
+    }
+    const divRe = new RegExp("\\/\\s*\\(?\\s*(" + totalRe + ")\\s*\\)?", "g");
+    let m;
+    while ((m = divRe.exec(fn.body)) !== null) {
+      const num = numeratorBefore(m.index);
+      if (!num) continue;
+      const ids = num.text.match(/[A-Za-z_][A-Za-z0-9_$]*/g) || [];
+      let pool = null;
+      for (const id of ids) { pool = resolvePool(id); if (pool) break; }
+      if (!pool) continue;
+      return { pool, total: m[1], rateVar: rateVarBefore(num.start), index: num.start };
+    }
+    // mulDiv: `POOL.mulDiv(F, TOTAL)` / `Math.mulDiv(POOL, F, TOTAL)`.
+    const mulRe = new RegExp("(?:\\b([A-Za-z_][A-Za-z0-9_$]*)\\s*\\.\\s*mulDiv\\s*\\(\\s*[^,]{1,80}?,\\s*|Math\\.mulDiv\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_$]*)\\s*,\\s*[^,]{1,80}?,\\s*)(" + totalRe + ")", "g");
+    while ((m = mulRe.exec(fn.body)) !== null) {
+      const pool = resolvePool(m[1] || m[2]);
+      if (!pool) continue;
+      return { pool, total: m[3], rateVar: rateVarBefore(m.index), index: m.index };
+    }
+    return null;
+  }
+  // Gate holding-period (R22, F13/F14): statement yang membandingkan
+  // block.timestamp dengan waktu stake/deposit pemanggil. Emit BUKAN gate
+  // (A20); nama harus berbatas kata + sufiks yang sah (At/Time/Timestamp/
+  // Date) agar `stakeTimeout` tidak ikut terhitung; daftar nama diperluas
+  // (depositedAt/depositAt/stakeAt, A18).
+  function hasHoldingGate(body) {
+    const names = [...D22_HOLDING_NAMES].sort((a, b) => b.length - a.length);
+    const holdRe = new RegExp("\\b(?:" + names.map(d22EscapeRegExp).join("|") + ")(?:At|Time|Timestamp|Date)?\\b");
+    for (const stmt of body.split(";")) {
+      // Statement pertama fn.body memuat signature + `{`, jadi emit dicek
+      // lewat `(^|{) emit`, bukan startsWith (R22, perbaikan F13-A20).
+      if (/(?:^|\{)\s*emit\s/.test(stmt)) continue;
+      if (/block\.timestamp/.test(stmt) && holdRe.test(stmt)) return true;
+    }
+    return false;
+  }
+  // Nama modifier di signature (sesudah `)`, buang kata kunci visibilitas/
+  // mutability/returns) — R22 (F14): gate di badan modifier ikut menggugur.
+  function modifierNamesOf(sig) {
+    const close = sig.indexOf(")");
+    if (close === -1) return [];
+    const afterParams = sig.slice(close + 1);
+    const noReturns = afterParams.replace(/\breturns\b[\s\S]*$/, "");
+    return noReturns.split(/[\s,()]+/).filter((t) => t
+      && !/^(external|public|internal|private|view|pure|payable|virtual|override|nonpayable|nonReentrant|whenNotPaused)$/i.test(t));
+  }
+  // Kaki exit: formula rate + rate dikunci + share dibakar / pool dikurangi.
+  function exitLeg(fn) {
+    if (!isCallable(fn)) return null;
+    const formula = rateFormula(fn);
+    if (!formula) return null;
+    const after = fn.body.slice(formula.index);
+    // Kunci rate (R22, F11): rate disimpan ke field struct/member APA PUN
+    // (`field: rateVar` / `.field = ...rateVar`), dipakai di payout fungsi
+    // yang sama (`* rateVar`), atau dipakai sebagai nilai payout
+    // (`call{value: rateVar}` / transfer / send) — varian redeem langsung
+    // (K5var) ikut tertangkap; A16 (amountOwed) tertangkap via (i).
+    let locked = false;
+    if (formula.rateVar) {
+      const rv = d22EscapeRegExp(formula.rateVar);
+      locked = new RegExp("[A-Za-z_][A-Za-z0-9_$]*\\s*:\\s*" + rv + "\\b\\s*[,}]").test(after)
+        || new RegExp("\\.[A-Za-z_][A-Za-z0-9_$]*\\s*=\\s*[^;]{0,120}?\\b" + rv + "\\b").test(after)
+        || new RegExp("\\b" + rv + "\\s*\\*|\\*\\s*" + rv + "\\b").test(after)
+        || new RegExp("(?:call\\s*\\{\\s*value\\s*:|\\.transfer\\s*\\(|\\.send\\s*\\()\\s*[^;]{0,80}?\\b" + rv + "\\b").test(after);
+    }
+    if (!locked) return null;
+    const burn = hasBurnAny(fn)
+      || new RegExp("\\b" + d22EscapeRegExp(formula.pool) + "\\s*-=").test(fn.body);
+    if (!burn) return null;
+    if (hasHoldingGate(fn.body)) return null;
+    // Gate di modifier yang menempel pada fungsi exit (F14/A19).
+    const mods = modifierNamesOf(fn.signature);
+    if (mods.length > 0) {
+      for (const mod of scanModifiers(clean)) {
+        if (mods.includes(mod.name)
+          && hasHoldingGate(clean.slice(mod.start, mod.end))) return null;
+      }
+    }
+    return { fn, formula };
+  }
+  // Kaki stake: payable + mint (langsung / via helper, F16) + POOL += msg.value.
+  function stakeLeg(fn, pool) {
+    if (!isCallable(fn)) return false;
+    if (!/\bpayable\b/.test(fn.signature)) return false;
+    if (!hasMintAny(fn)) return false;
+    return new RegExp("\\b" + d22EscapeRegExp(pool) + "\\s*\\+=\\s*msg\\.value\\b").test(fn.body);
+  }
+  // Kaki accrual (R22, F10/F16): POOL += <param|msg.value|alias-lokal-param>
+  // atau POOL = POOL + <...>; tanpa mint (langsung / via helper).
+  function accrualLeg(fn, pool) {
+    if (!isCallable(fn)) return false;
+    if (/^initialize\b/i.test(fn.name) || /\binitializer\b/.test(fn.signature)) return false;
+    if (hasMintAny(fn)) return false;
+    const params = new Set(paramNamesOf(fn).filter(Boolean));
+    // Lokal yang diturunkan dari param (fixpoint ≤3 iterasi): `net = amount
+    // - amount/10` -> net dianggap param-derived (A13); lokal dari msg.value
+    // ikut dihitung; var pool sendiri dikeluarkan dari himpunan.
+    const derived = new Set(params);
+    derived.add("msg.value");
+    for (let it = 0; it < 3; it++) {
+      let added = false;
+      const re = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*([^;]{1,120}?);/g;
+      let m;
+      while ((m = re.exec(fn.body)) !== null) {
+        if (derived.has(m[1])) continue;
+        const rhsIds = m[2].match(/[A-Za-z_][A-Za-z0-9_$]*/g) || [];
+        if (/\bmsg\.value\b/.test(m[2]) || rhsIds.some((id) => derived.has(id))) { derived.add(m[1]); added = true; }
+      }
+      if (!added) break;
+    }
+    derived.delete(pool);
+    const srcAlt = [...derived].map(d22EscapeRegExp).join("|");
+    const poolRe = d22EscapeRegExp(pool);
+    return new RegExp("\\b" + poolRe + "\\s*\\+=\\s*(?:" + srcAlt + ")\\b").test(fn.body)
+      || new RegExp("\\b" + poolRe + "\\s*=\\s*" + poolRe + "\\s*\\+\\s*(?:" + srcAlt + ")\\b").test(fn.body)
+      || new RegExp("\\b" + poolRe + "\\s*=\\s*(?:" + srcAlt + ")\\s*\\+\\s*" + poolRe + "\\b").test(fn.body);
+  }
+  // Analisis fee keluar (R22, F1-F6): pola `(X * <feeVar>) / <DENOM>` dengan
+  // DENOM identifier ATAU literal numerik (F1); feeVar bernama *fee*
+  // case-insensitive, boleh berdiri sendiri (`fee`, `feeBps`, `FEE`, F2) di
+  // posisi operand mana pun (F3). Vonis per var: (a) assignment literal di
+  // constructor/initialize menang atas initializer (F5 — immutable /
+  // upgradeable); (b) constant ikut dinilai dari init-nya, bukan dilewati
+  // (F4); (c) tanpa init + tanpa assignment -> default-0; (d) dipakai tapi
+  // tak terdeklarasi -> unknown. Bila beberapa fee var, yang dipakai di
+  // fungsi exit / fungsi yang menyebut rate yang menang (F6); seri -> urutan
+  // sumber.
+  function feeVerdict(exitFns) {
+    const feeVarRe = "(?:[A-Za-z_][A-Za-z0-9_$]*[Ff][Ee][Ee][A-Za-z0-9_$]*|[Ff][Ee][Ee][A-Za-z0-9_$]*)";
+    const denomRe = "(?:[A-Za-z_][A-Za-z0-9_$]*|\\d[\\d_]*(?:\\.\\d+)?(?:[eE]\\d+)?|\\([^()]*\\))";
+    const re = new RegExp("\\(\\s*([^()]{1,120}?)\\s*\\)\\s*\\/\\s*" + denomRe, "g");
+    const found = new Map(); // var -> { score, firstIndex }
+    for (const fn of fns) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(fn.body)) !== null) {
+        const operands = m[1].split("*").map((s) => s.trim().replace(/^[A-Za-z_][A-Za-z0-9_$]*\./, ""));
+        for (const op of operands) {
+          const vm = op.match(new RegExp("^" + feeVarRe + "$"));
+          if (!vm) continue;
+          const v = vm[0];
+          const isExit = exitFns.some((e) => e.fn === fn);
+          const score = isExit ? 2 : (/\bexchangeRate\b/.test(fn.body) ? 1 : 0);
+          const idx = fn.startIndex + m.index;
+          const prev = found.get(v);
+          if (!prev || score > prev.score || (score === prev.score && idx < prev.firstIndex)) {
+            found.set(v, { score, firstIndex: idx });
+          }
+        }
+      }
+    }
+    if (found.size === 0) return { kind: "absent", var: null };
+    const ordered = [...found.entries()].sort((a, b) => b[1].score - a[1].score || a[1].firstIndex - b[1].firstIndex);
+    // Assignment di constructor/initialize (override initializer).
+    function initAssignment(v) {
+      for (const fn of fns) {
+        if (!fn.isConstructor && !/^initialize/i.test(fn.name)) continue;
+        const am = fn.body.match(new RegExp("\\b" + d22EscapeRegExp(v) + "\\s*=\\s*([^;]{1,60}?);"));
+        if (!am) continue;
+        const rhs = am[1].trim();
+        if (/^(0[xX]0+|0+(\.0+)?([eE]\d+)?(\s*(ether|wei|gwei))?)$/i.test(rhs)) return { kind: "zero", var: v };
+        if (/^\d[\d_]*(?:\.\d+)?(?:[eE]\d+)?$/.test(rhs) || /^0[xX][0-9a-fA-F]+$/.test(rhs)) return { kind: "nonzero", var: v };
+        return { kind: "unknown", var: v };
+      }
+      return null;
+    }
+    for (const [v] of ordered) {
+      const asg = initAssignment(v);
+      if (asg) return asg;
+      const local = initMap.get(v);
+      if (local) {
+        return local.hasInit && !d22IsZeroInit(local.init)
+          ? { kind: "nonzero", var: v }
+          : { kind: "zero", var: v };
+      }
+      if (projectInits && projectInits.has(v)) {
+        const p = projectInits.get(v);
+        return p.hasInit && !d22IsZeroInit(p.init)
+          ? { kind: "nonzero", var: v }
+          : { kind: "zero", var: v };
+      }
+    }
+    return { kind: "unknown", var: ordered[0][0] };
+  }
+  const exits = [];
+  for (const fn of fns) {
+    const leg = exitLeg(fn);
+    if (leg) exits.push(leg);
+  }
+  if (exits.length === 0) return [];
+  const fee = feeVerdict(exits);
+  const out = [];
+  const seenPools = new Set();
+  for (const exit of exits) {
+    const pool = exit.formula.pool;
+    // R22 (F15): stake + accrual harus di kontrak yang sama dengan exit;
+    // dedup per kontrak+pool (dua kontrak boleh punya pool bernama sama).
+    const c = contractOf(exit.fn);
+    if (seenPools.has(c + "::" + pool)) continue;
+    const stakeFn = fns.find((fn) => contractOf(fn) === c && stakeLeg(fn, pool));
+    if (!stakeFn) continue;
+    const accrualFn = fns.find((fn) => contractOf(fn) === c && accrualLeg(fn, pool));
+    if (!accrualFn) continue;
+    seenPools.add(c + "::" + pool);
+    const severity = (fee.kind === "zero" || fee.kind === "absent") ? "Medium" : "Low";
+    const feeNote = fee.kind === "zero"
+      ? "fee keluar `" + fee.var + "` default-0 (dideklarasi tanpa initializer atau `= 0`)"
+      : fee.kind === "absent"
+        ? "tidak ada perhitungan fee keluar di file ini (tanpa friksi)"
+        : fee.kind === "nonzero"
+          ? "fee keluar `" + fee.var + "` ter-init nonzero (friksi ada, tapi belum tentu menutup capture)"
+          : "fee keluar `" + fee.var + "` dipakai tapi deklarasinya tidak ditemukan di file ini (nilai live tak diketahui)";
+    out.push(normalizeCandidate({
+      id: "FA-" + String(idStart + out.length).padStart(3, "0"),
+      detector: "jit-reward-accrual-sandwich",
+      title: "Sandwich JIT reward-accrual: stake sebelum accrual, kunci rate sesudah",
+      location: { file: fileName, function: accrualFn.name },
+      hypothesis: "Fungsi `" + accrualFn.name + "` (baris " + (lineOf(accrualFn.startIndex) + 1)
+        + ") menambah `" + pool + "` tanpa mint share — harga share naik untuk semua pemegang. `"
+        + stakeFn.name + "` (baris " + (lineOf(stakeFn.startIndex) + 1)
+        + ") mint share pada rate pra-accrual, dan `" + exit.fn.name + "` (baris "
+        + (lineOf(exit.fn.startIndex) + 1) + ") mengunci rate pasca-accrual (`"
+        + (exit.formula.rateVar || "exchangeRate") + " = (" + pool + " * ...) / " + exit.formula.total
+        + "`) lalu membakar share — penyerang yang stake tepat sebelum accrual dan request-unbond "
+        + "tepat sesudahnya menguras bagian reward milik staker lama. " + feeNote + ".",
+      preconditions: "Accrual dipanggil pada jadwal yang dapat diprediksi penyerang (bot terjadwal / tx terlihat di mempool); tidak ada jeda minimum stake→unbond; " + feeNote + ".",
+      impact: "Ekstraksi berulang reward staker lama — per siklus, bagian penyerang ≈ stake / (pool + stake) × reward yang diakru; tanpa fee dan tanpa jeda, profit hanya dibatasi gas + ukuran pool.",
+      severityGuess: severity,
+      evidence: "Accrual `" + accrualFn.name + "` (baris " + (lineOf(accrualFn.startIndex) + 1) + "): `"
+        + pool + " += <param>` tanpa `_mint`; stake `" + stakeFn.name + "` (baris "
+        + (lineOf(stakeFn.startIndex) + 1) + "): `_mint` + `" + pool + " += msg.value`; exit `"
+        + exit.fn.name + "` (baris " + (lineOf(exit.fn.startIndex) + 1) + "): rate `(" + pool
+        + " * ...) / " + exit.formula.total + "` dikunci lalu share dibakar; " + feeNote + ".",
+      toVerify: ["Cek nilai LIVE fee keluar (`" + (fee.var || "fee") + "`) — bila 0, severity Medium terkonfirmasi; bila nonzero, hitung capture per siklus vs fee",
+        "cek jadwal accrual LIVE (event AccrueReward / pemanggil bot): bila terjadwal kaku (mis. harian jam yang sama), timing attack praktis",
+        "cek ada tidaknya jeda minimum stake→unbond / minimum stake di kode + live (bila ada, kandidat ini gugur)",
+        "hitung capture live: stake / (pool + stake) × reward per accrual vs biaya gas 3 tx (stake + request + unbond)",
+        "PoC fork: stake sebelum accrueReward, requestUnbond sesudahnya, bandingkan payout vs stake awal; kontrol fee-1% (fix-flip) harus membalik profit jadi rugi"],
+      source: "pattern-scan",
+    }));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Detektor ke-23: refund-locked-middleware (kelas VENO-C1 BridgeMiddleware
+// zkCRO, sesi BB pagi 19 Nov 2026 — KANDIDAT laten, mock PoC 5/5 PASS).
+// Pola: kontrak middleware yang meneruskan deposit user ke bridge/hub
+// eksternal (kontrak ini tercatat sebagai deposit sender di bridge), tapi
+// (a) tidak punya fungsi rescue untuk ERC20 arbitrer — withdraw yang ada
+// hanya token tertentu (base token via lookup) atau ETH ke treasury — dan
+// (b) tanpa receive()/fallback() sehingga refund ETH revert di bridge.
+// Kaki per kontrak (satu file boleh berisi beberapa kontrak):
+//   A. bridge-forward: panggilan member ke entrypoint deposit bridge
+//      (requestL2Transaction*, bridge*, sendToL2*, *TwoBridges*, atau
+//      deposit* pada objek bernama *bridge*) + aliran dana user masuk
+//      (safeTransferFrom/transferFrom dari msg.sender/_msgSender(), atau
+//      payable + {value:} ke panggilan bridge). Panggilan ke kontrak
+//      *middleware* lain BUKAN bridge-forward (W1: deposit sender-nya
+//      middleware itu, bukan kontrak ini). Jalur Direct
+//      (requestL2TransactionDirect) hanya dihitung bila refundRecipient
+//      = address(this) — bila refund ke user lain, l2Value kembali ke
+//      user di L2, bukan terkunci (F12, terverifikasi era-contracts:
+//      Messaging.sol refundRecipient + L1Bridgehub Direct tanpa
+//      pencatatan nullifier; hanya TwoBridges yang kembali ke
+//      _depositSender via claimFailedDeposit).
+//   B. tanpa rescue ERC20 arbitrer: tidak ada fungsi external/public di
+//      kontrak yang sama (ATAU induknya di file yang sama) yang
+//      mentransfer token dari PARAMETER (IERC20(p).transfer/safeTransfer,
+//      p.safeTransfer bila p bertipe IERC20, SafeERC20.safeTransfer,
+//      helper internal 1 hop, execute arbitrer ber-guard). Transfer ETH
+//      (p.transfer) BUKAN rescue; transferFrom BUKAN rescue (revert tanpa
+//      self-allowance); rescue allowlist konstan BUKAN rescue; fungsi yang
+//      berisi panggilan bridge BUKAN rescue (dust di tx yang sama tidak
+//      menolong refund yang mendarat belakangan).
+//   C. (bukti saja) tanpa receive()/fallback() yang dapat menerima refund
+//      — receive() yang revert / membatasi pengirim dihitung tak ada.
+// Kandidat: A + B. Bila aliran masuk hanya ETH (tanpa token), kandidat
+// hanya bila C juga benar (refund ETH revert — dana tertahan di bridge).
+// Severity Medium; Low bila jalur hanya-ETH atau kontrak upgradeable
+// (rescue bisa ditambah lewat upgrade). toVerify menuntut semantik refund
+// bridge live + saldo live + rescue di kontrak induk luar-file.
+// Batas diketahui: rescue di kontrak induk luar-file tak terlihat; bridge
+// yang refund langsung ke user asli (bukan deposit sender) tak dibedakan
+// di luar jalur Direct — toVerify butir 1.
+// ---------------------------------------------------------------------------
+const D23_STRONG_METHOD_RE = /^(?:requestL2Transaction\w*|requestDeposit\w*|sendToL2\w*|requestL2\w*|.*TwoBridges.*)$/;
+const D23_BRIDGE_VERB_RE = /^bridge\w*$/;
+const D23_DEPOSIT_METHOD_RE = /^deposit\w*$/;
+const D23_GETTER_RE = /^(?:get\w+|is\w+|has\w+|bridgehub|bridgeFee|bridgeAddress|baseToken|sharedBridge|balanceOf|allowance|decimals|symbol|name|totalSupply)$/;
+const D23_DIRECT_RE = /^requestL2Transaction(Direct)?$/;
+
+function d23EscapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Pisah nama identifier camelCase/underscore menjadi token huruf kecil.
+// Awalan `I` antarmuka (IBridgehub) dibuang — token `bridgehub` tetap
+// dikenali sebagai bridge.
+function d23NameTokens(name) {
+  return name.replace(/^I(?=[A-Z])/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[\s_]+/)
+    .map((t) => t.toLowerCase()).filter(Boolean);
+}
+
+function detectRefundLockedMiddleware(source, fileName, idStart, opts) {
+  // F18: lewati file test/mock/script + .t.sol/.s.sol + Mock|Harness
+  // sebagai prefix ATAU sufiks nama file (case-sensitive, konvensi D22).
+  if (/(^|\/)(mocks?|test|tests?|script|scripts?)\//i.test(fileName)
+    || /\.t\.sol$/i.test(fileName)
+    || /\.s\.sol$/i.test(fileName)
+    || /(^|\/)(Mock|Harness)[A-Za-z0-9_]*\.sol$/.test(fileName)
+    || /(Mock|Harness)\.sol$/.test(fileName)) return [];
+  const clean = stripComments(source);
+  // F10: skip file HANYA bila receive()/fallback() mendelegasikan
+  // (proxy) — multicall delegatecall ke address(this) bukan proxy.
+  if (/(?:receive|fallback)\s*\([^)]*\)[^{]*\{[^}]{0,600}?delegatecall\s*\(/.test(clean)) return [];
+  const lineOf = (idx) => clean.slice(0, idx).split("\n").length - 1;
+  const allSpans = contractSpans(clean);
+  const spans = allSpans.filter((s) => s.kind === "contract");
+  const fns = extractFunctions(clean);
+  const contractOf = (fn) => {
+    const s = spans.find((sp) => fn.startIndex >= sp.start && fn.startIndex <= sp.end);
+    return s ? s.name : null;
+  };
+  const spanTextOf = (name) => {
+    const s = spans.find((sp) => sp.name === name);
+    return s ? clean.slice(s.start, s.end) : "";
+  };
+  // F9: leluhur file-lokal (transitif, aman siklus) untuk pencarian rescue.
+  function ancestorsOf(name) {
+    const out = new Set();
+    const queue = [name];
+    while (queue.length > 0) {
+      const cur = queue.shift();
+      const sp = allSpans.find((s) => s.name === cur);
+      if (!sp) continue;
+      for (const p of (sp.parents || [])) {
+        if (!out.has(p) && p !== name) { out.add(p); queue.push(p); }
+      }
+    }
+    return out;
+  }
+  // F11: badan fungsi library (kind library) untuk resolusi 1 hop.
+  const libFns = new Map();
+  for (const sp of allSpans) {
+    if (sp.kind !== "library") continue;
+    for (const fn of fns) {
+      if (fn.startIndex >= sp.start && fn.startIndex <= sp.end) {
+        libFns.set(sp.name + "." + fn.name, fn);
+      }
+    }
+  }
+  // Teks argumen panggilan: dari `(` di parenIdx, jalan seimbang.
+  function parenArgs(body, parenIdx) {
+    let depth = 0;
+    for (let i = parenIdx; i < body.length; i++) {
+      if (body[i] === "(") depth++;
+      else if (body[i] === ")") {
+        depth--;
+        if (depth === 0) return body.slice(parenIdx + 1, i);
+      }
+    }
+    return "";
+  }
+  // Semua panggilan bridge dalam satu badan fungsi (F1 cast inline, F2
+  // skor bukan first-match): kembalikan kandidat terbaik atau null.
+  // Bentuk objek: identifier ATAU cast `Type(args)` sebelum titik.
+  function bridgeCallIn(body) {
+    const cands = [];
+    const re = /\.\s*([A-Za-z_][\w$]*)\s*(?:\{[^}]*\})?\s*\(/g;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      const method = m[1];
+      const dotIdx = m.index;
+      // Mundur dari titik: identifier polos atau `)` dari cast.
+      let j = dotIdx - 1;
+      while (j >= 0 && /\s/.test(body[j])) j--;
+      let obj = null;
+      if (j >= 0 && /[A-Za-z0-9_$]/.test(body[j])) {
+        let k = j;
+        while (k >= 0 && /[A-Za-z0-9_$]/.test(body[k])) k--;
+        obj = body.slice(k + 1, j + 1);
+      } else if (j >= 0 && body[j] === ")") {
+        let depth = 0, k = j;
+        for (; k >= 0; k--) {
+          if (body[k] === ")") depth++;
+          else if (body[k] === "(") {
+            depth--;
+            if (depth === 0) break;
+          }
+        }
+        if (k < 0) continue;
+        let t = k - 1;
+        while (t >= 0 && /\s/.test(body[t])) t--;
+        let s = t;
+        while (s >= 0 && /[A-Za-z0-9_$]/.test(body[s])) s--;
+        obj = body.slice(s + 1, t + 1);
+      }
+      if (!obj || obj === "this" || obj === "super") continue;
+      // W1: panggilan ke kontrak *middleware* lain = delegasi, bukan
+      // deposit langsung ke bridge (deposit sender-nya middleware itu).
+      if (/middleware/i.test(obj)) continue;
+      // F2: getter bukan entrypoint (bridgehub()/bridgeFee()/get*).
+      if (D23_GETTER_RE.test(method)) continue;
+      const parenIdx = body.indexOf("(", m.index + m[0].length - 1);
+      const hasValue = /\{\s*value\s*:/.test(m[0]);
+      let score = 0;
+      if (D23_STRONG_METHOD_RE.test(method)) score = 3;
+      else if (D23_BRIDGE_VERB_RE.test(method)) score = 2;
+      // F3: deposit* hanya pada objek bridge/router (token camelCase) —
+      // `pool1`/`wethGateway`/`tokenMessenger` bukan bridge (substring
+      // `l1`/`gateway`/`messenger` dulu ikut cocok).
+      else if (D23_DEPOSIT_METHOD_RE.test(method)
+        && d23NameTokens(obj).some((t) => t === "bridge" || t.startsWith("bridge") || t === "router")) score = 2;
+      else continue;
+      // F12: jalur Direct — refund l2Value kembali ke refundRecipient di
+      // L2; hanya hitung bila refundRecipient = address(this).
+      if (D23_DIRECT_RE.test(method)) {
+        const args = parenIdx >= 0 ? parenArgs(body, parenIdx) : "";
+        if (/refundRecipient\s*:/.test(args)
+          && !/refundRecipient\s*:\s*address\s*\(\s*this\s*\)/.test(args)) continue;
+      }
+      cands.push({ obj, method, index: dotIdx, hasValue, score, parenIdx });
+    }
+    if (cands.length === 0) return null;
+    cands.sort((a, b) => b.score - a.score || a.index - b.index);
+    return cands[0];
+  }
+  // Cari panggilan bridge di badan fn; bila tak ada, cari 1 hop ke
+  // fungsi library yang dipanggil fn itu (F11) — indeks dikembalikan ke
+  // situs pemanggilan library supaya nomor baris tetap benar.
+  function bridgeCallOf(fn) {
+    const direct = bridgeCallIn(fn.body);
+    if (direct) return direct;
+    const re = /\b([A-Za-z_][\w$]*)\s*\.\s*([A-Za-z_][\w$]*)\s*\(/g;
+    let m;
+    while ((m = re.exec(fn.body)) !== null) {
+      const libFn = libFns.get(m[1] + "." + m[2]);
+      if (!libFn || libFn === fn) continue;
+      const lbc = bridgeCallIn(libFn.body);
+      if (lbc) return { ...lbc, index: m.index, libFn: libFn.name };
+    }
+    return null;
+  }
+  // Nama parameter bertipe address / IERC20 dari signature fungsi.
+  function tokenParams(fn) {
+    const addr = [];
+    const ierc = [];
+    let m;
+    const ar = /\baddress\s+(?:payable\s+)?([A-Za-z_][\w$]*)/g;
+    while ((m = ar.exec(fn.signature)) !== null) addr.push(m[1]);
+    const ir = /\b(?:IERC20\w*|ERC20\w*)\s+(?:memory\s+|calldata\s+|storage\s+)?([A-Za-z_][\w$]*)/g;
+    while ((m = ir.exec(fn.signature)) !== null) ierc.push(m[1]);
+    return { addr, ierc };
+  }
+  // Apakah badan fn berisi transfer rescue atas parameter token p
+  // (p bertipe address -> wajib via IERC20(...)/SafeERC20; p bertipe
+  // IERC20 -> boleh bare p.transfer). transferFrom TIDAK dihitung (F8:
+  // revert tanpa self-allowance). F5: p.transfer polos atas address =
+  // transfer ETH, bukan rescue ERC20.
+  function bodyHasRescueTransfer(body, fn) {
+    const { addr, ierc } = tokenParams(fn);
+    // Allowlist konstan (F8b): require(p == KONSTANTA) -> bukan rescue
+    // arbitrer. `!=` / `if-revert` bukan allowlist.
+    const allowlisted = (p) => {
+      const pr = d23EscapeRegExp(p);
+      return new RegExp("\\brequire\\s*\\([^;]{0,150}?\\b" + pr
+        + "\\s*==\\s*(?!address\\s*\\(\\s*0\\s*\\))").test(body);
+    };
+    for (const p of addr) {
+      if (allowlisted(p)) continue;
+      const pr = d23EscapeRegExp(p);
+      if (new RegExp("(?:IERC20\\w*|ERC20\\w*)\\s*\\(\\s*" + pr
+        + "\\s*\\)\\s*\\.\\s*(?:safeTransfer|transfer)\\s*\\(").test(body)) return true;
+      if (new RegExp("SafeERC20\\s*\\.\\s*safeTransfer\\s*\\(\\s*(?:(?:IERC20\\w*|ERC20\\w*)\\s*\\(\\s*" + pr + "\\s*\\))").test(body)) return true;
+    }
+    for (const p of ierc) {
+      if (allowlisted(p)) continue;
+      const pr = d23EscapeRegExp(p);
+      if (new RegExp("\\b" + pr + "\\s*\\.\\s*(?:safeTransfer|transfer)\\s*\\(").test(body)) return true;
+      if (new RegExp("SafeERC20\\s*\\.\\s*safeTransfer\\s*\\(\\s*" + pr + "\\s*,").test(body)) return true;
+    }
+    return false;
+  }
+  // Helper internal yang me-rescue: nama -> info (dipakai F7c).
+  const rescueHelpers = new Map();
+  for (const fn of fns) {
+    if (/\b(external|public)\b/.test(fn.signature) || fn.isConstructor) continue;
+    if (bridgeCallIn(fn.body)) continue; // fn bridge bukan helper rescue
+    const { addr, ierc } = tokenParams(fn);
+    if ((addr.length > 0 || ierc.length > 0) && bodyHasRescueTransfer(fn.body, fn)) {
+      rescueHelpers.set(fn.name, fn);
+    }
+  }
+  // Rescue ERC20 arbitrer di kontrak ini ATAU induk file-lokal (F9):
+  // transfer rescue langsung, delegasi helper 1 hop (F7c), atau
+  // execute arbitrer ber-guard (C31). Fungsi berisi panggilan bridge
+  // dikecualikan (F6: dust di tx yang sama bukan jalur keluar refund).
+  function findRescue(contractName) {
+    const scope = new Set([contractName, ...ancestorsOf(contractName)]);
+    for (const fn of fns) {
+      if (!scope.has(contractOf(fn))) continue;
+      if (!/\b(external|public)\b/.test(fn.signature) || fn.isConstructor) continue;
+      if (bridgeCallIn(fn.body)) continue;
+      if (bodyHasRescueTransfer(fn.body, fn)) return { fn, kind: "transfer" };
+      // Delegasi helper: fn memanggil helper rescue sambil meneruskan
+      // salah satu parameter token-nya.
+      const { addr, ierc } = tokenParams(fn);
+      const toks = [...addr, ...ierc];
+      for (const [hName, hFn] of rescueHelpers) {
+        if (contractOf(hFn) !== contractName && !scope.has(contractOf(hFn))) continue;
+        if (!new RegExp("\\b" + d23EscapeRegExp(hName) + "\\s*\\(").test(fn.body)) continue;
+        if (toks.some((t) => new RegExp("\\b" + d23EscapeRegExp(hName)
+          + "\\s*\\([^)]*\\b" + d23EscapeRegExp(t) + "\\b").test(fn.body))) {
+          return { fn, kind: "helper" };
+        }
+      }
+      // Execute arbitrer ber-guard: owner dapat memanggil token apa pun.
+      if (hasAccessGuard(fn)) {
+        for (const p of addr) {
+          const pr = d23EscapeRegExp(p);
+          if (new RegExp("\\b" + pr + "\\s*\\.\\s*(?:call|delegatecall)\\s*(?:\\{|\\()").test(fn.body)) {
+            return { fn, kind: "execute" };
+          }
+        }
+      }
+    }
+    return null;
+  }
+  // Badan receive()/fallback() di span kontrak (F13): revert / batas
+  // pengirim -> refund ETH tetap tak bisa masuk.
+  function receiveBlocked(cText) {
+    const rm = cText.match(/receive\s*\(\s*\)\s*external[^{]*\{([\s\S]{0,500}?)\}/);
+    if (rm && /revert|require\s*\(\s*msg\.sender\s*==/.test(rm[1])) return true;
+    const fm = cText.match(/fallback\s*\([^)]*\)\s*external[^{]*\{([\s\S]{0,500}?)\}/);
+    if (fm && /revert|require\s*\(\s*msg\.sender\s*==/.test(fm[1])) return true;
+    return false;
+  }
+  const out = [];
+  for (const sp of spans) {
+    const cName = sp.name;
+    // R23-F19: kontrak inti infrastruktur bridge (bridgehub / asset
+    // router / shared bridge / nullifier) BUKAN middleware — panggilan
+    // deposit di dalamnya adalah plumbing protokol (bridgehubDeposit-
+    // BaseToken, bridgeBurn), bukan penerusan deposit user; refund
+    // bukan kembali ke kontrak-kontrak ini sebagai deposit sender.
+    if (/bridgehub|assetrouter|sharedbridge|nullifier/i.test(cName)) continue;
+    const cFns = fns.filter((fn) => contractOf(fn) === cName);
+    if (cFns.length === 0) continue;
+    // Kaki A: cari panggilan bridge + aliran dana user masuk.
+    let bridgeFn = null, bridgeCall = null;
+    for (const fn of cFns) {
+      const bc = bridgeCallOf(fn);
+      if (bc) { bridgeFn = fn; bridgeCall = bc; break; }
+    }
+    if (!bridgeFn) continue;
+    // F4: inflow dari msg.sender ATAU _msgSender().
+    const tokenInflow = cFns.some((fn) =>
+      /\.\s*(?:safeTransferFrom|transferFrom)\s*\(\s*(?:msg\.sender|_msgSender\s*\(\s*\))\s*,/.test(fn.body));
+    // Jalur ETH ke bridge HANYA bila panggilan bridge membawa {value:} —
+    // payable + msg.value sebagai mintValue saja bukan aliran ETH ke
+    // bridge (mintValue gas dibayar terpisah; refund ETH hanya relevan
+    // bila value diteruskan ke bridge).
+    const ethForward = bridgeCall.hasValue;
+    if (!tokenInflow && !ethForward) continue;
+    // Kaki B: tanpa rescue ERC20 arbitrer di kontrak/leluhur ini.
+    if (findRescue(cName)) continue;
+    // Kaki C (bukti saja): tanpa receive()/fallback() yang dapat
+    // menerima refund (F13: receive revert/terbatas = tak ada).
+    const cText = spanTextOf(cName);
+    const hasReceive = /\breceive\s*\(\s*\)/.test(cText);
+    const hasFallback = /\bfallback\s*\(/.test(cText);
+    const recvBlocked = (hasReceive || hasFallback) && receiveBlocked(cText);
+    const noRecv = (!hasReceive && !hasFallback) || recvBlocked;
+    // Aliran masuk hanya ETH -> kandidat hanya bila refund ETH revert
+    // (tanpa receive/fallback); token masuk -> refund ERC20 terkunci
+    // di middleware apa pun status receive-nya.
+    if (!tokenInflow && !noRecv) continue;
+    // Jangkar (F15): entrypoint external/public yang mencapai fungsi
+    // bridge secara transitif (<=3 hop); bila tak ada, fungsi itu sendiri.
+    let anchor = bridgeFn;
+    if (!/\b(external|public)\b/.test(bridgeFn.signature)) {
+      const callers = new Map();
+      for (const fn of cFns) {
+        const calls = new Set();
+        const re = /\b([A-Za-z_][\w$]*)\s*\(/g;
+        let m;
+        while ((m = re.exec(fn.body)) !== null) calls.add(m[1]);
+        callers.set(fn.name, calls);
+      }
+      const reach = new Map([[bridgeFn.name, 0]]);
+      const queue = [bridgeFn.name];
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        const d = reach.get(cur);
+        if (d >= 3) continue;
+        for (const fn of cFns) {
+          if (reach.has(fn.name)) continue;
+          if ((callers.get(fn.name) || new Set()).has(cur)) {
+            reach.set(fn.name, d + 1);
+            queue.push(fn.name);
+          }
+        }
+      }
+      let best = null, bestD = 99;
+      for (const fn of cFns) {
+        if (!/\b(external|public)\b/.test(fn.signature) || fn.isConstructor) continue;
+        const d = reach.get(fn.name);
+        if (d !== undefined && d >= 1 && d < bestD) { best = fn; bestD = d; }
+      }
+      if (best) anchor = best;
+    }
+    // Withdraw yang ada (bukti: hanya token tertentu / ETH ke treasury).
+    const withdraws = cFns
+      .filter((fn) => /\b(external|public)\b/.test(fn.signature) && !fn.isConstructor
+        && /(withdraw|rescue|sweep|claim)/i.test(fn.name))
+      .map((fn) => fn.name + "(" + paramNamesOf(fn).join(", ") + ")");
+    // F16: severity — Low bila jalur hanya-ETH atau kontrak upgradeable.
+    const upgradeable = /Upgradeable/.test(sp.parents.join(" "))
+      || /_authorizeUpgrade\s*\(/.test(cText);
+    const severity = (!tokenInflow || upgradeable) ? "Low" : "Medium";
+    // F17: catatan ETH hanya bila ada jalur ETH; tanpa klaim hard-coded
+    // soal tujuan withdraw (daftar withdraw sudah menyebutkannya).
+    const ethNote = !ethForward ? ""
+      : noRecv
+        ? " Kontrak ini tanpa receive()/fallback() yang dapat menerima refund — refund ETH dari bridge REVERT di titik transfer (dana tertahan di bridge, bukan di middleware)."
+        : " Kontrak ini punya receive()/fallback() — refund ETH bisa masuk, tapi refund ERC20 tetap terkunci (tanpa rescue).";
+    out.push(normalizeCandidate({
+      id: "FA-" + String(idStart + out.length).padStart(3, "0"),
+      detector: "refund-locked-middleware",
+      title: "Refund gagal-deposit terkunci di middleware tanpa jalur keluar",
+      location: { file: fileName, function: anchor.name },
+      hypothesis: "Fungsi `" + anchor.name + "` (baris " + (lineOf(anchor.startIndex) + 1)
+        + ") meneruskan deposit user ke bridge eksternal lewat `" + bridgeCall.obj + "."
+        + bridgeCall.method + "` (baris " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1)
+        + ") — bridge mencatat KONTRAK INI sebagai deposit sender, bukan user."
+        + (tokenInflow ? " Token user ditarik dulu ke kontrak ini (`transferFrom(msg.sender, address(this), ...)`)."
+          : " ETH user diteruskan dengan `{value:}`.")
+        + " Bila deposit L2 gagal, bridge mengembalikan dana ke deposit sender = kontrak ini."
+        + " Tidak ada fungsi rescue untuk ERC20 arbitrer di kontrak ini"
+        + (withdraws.length > 0 ? " (yang ada hanya: " + withdraws.join(", ") + ")" : " (tidak ada fungsi withdraw/rescue sama sekali)")
+        + " — refund ERC20 yang mendarat di sini terkunci permanen." + ethNote,
+      preconditions: "Deposit L2 gagal (gas limit user/frontend atau kondisi L2) sehingga bridge mengeksekusi jalur refund; bridge live mengembalikan dana ke deposit sender (bukan ke user asli).",
+      impact: "Dana principal user dari deposit yang gagal terkunci permanen di middleware (ERC20) atau tertahan di bridge (ETH bila tanpa receive/fallback) — kerugian kondisional, tanpa korban sampai ada failed-deposit yang tercatat.",
+      severityGuess: severity,
+      evidence: "Panggilan bridge `" + bridgeCall.obj + "." + bridgeCall.method + "` di `"
+        + bridgeFn.name + "` (baris " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1) + ")"
+        + (bridgeCall.libFn ? " via library `" + bridgeCall.libFn + "`" : "")
+        + (tokenInflow ? "; inflow token `transferFrom(msg.sender, address(this), ...)`" : "; forward ETH `{value:}`")
+        + "; tanpa rescue ERC20 arbitrer"
+        + (withdraws.length > 0 ? "; withdraw yang ada: " + withdraws.join(", ") : "")
+        + "; " + (noRecv ? "tanpa receive()/fallback() yang dapat menerima refund" : "dengan receive()/fallback()") + ".",
+      toVerify: ["Konfirmasi semantik refund bridge LIVE (router/hub mengembalikan dana gagal-deposit ke deposit sender = kontrak ini, bukan ke user asli) — baca claimFailedDeposit / _depositSender di implementasi bridge live; untuk jalur Direct, pastikan refundRecipient = address(this)",
+        "Cek saldo LIVE kontrak ini (token non-base > 0 atau event ClaimedFailedDeposit ke alamat ini = korban sudah ada; 0 = laten)",
+        "Cek kontrak warisan/base di luar file ini: fungsi rescue ERC20 arbitrer mungkin hidup di kontrak induk luar-file (detektor hanya melihat induk file-lokal) — bila ada, kandidat ini gugur; cek juga proxy kustom yang punya receive() sendiri tanpa delegasi",
+        "Mock PoC: deposit gagal via middleware, refund mendarat di middleware, buktikan withdraw yang ada tidak menyentuhnya (kontrol positif: base token + ETH bisa ditarik)"],
+      source: "pattern-scan",
+    }));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Detektor ke-24: variant-branch-no-payload-consume (kelas L-1 Hyperbridge
+// Codec.DecodeHeader, sesi BB pagi 20 Nov 2026 — Info/design, BUKAN kandidat
+// submit: header harus genuinely finalized (ZK-proven vs authority set +
+// MMR), penyerang tak bisa menyisip digest pilihan; worst-case liveness).
+// Pola: loop atas item-item yang di-dispatch berdasarkan tag/kind; satu
+// cabang varian opaque (Other/Unknown/Custom/...) hanya menandai flag tanpa
+// mengonsumsi payload dari cursor bersama, sementara cabang lain membaca
+// payload (decode*/read*/skip* + advance offset). Item berikutnya lalu
+// ter-parse dari posisi salah (offset desync) — digest konsensus/ISMP palsu,
+// field `other` tak pernah terisi.
+// Syarat: (a) rantai if/else-if atas satu variabel tag di dalam loop
+// for/while/do-while; (b) tag punya penugasan di badan loop sebelum rantai
+// (tag yang dibaca sekali sebelum loop / parameter fungsi BUKAN dispatch
+// per-item, F22); (c) >=1 cabang mengonsumsi payload lewat cursor yang sama;
+// (d) cabang yang di-flag TIDAK mengonsumsi apa pun dan TIDAK terminasi
+// (revert/break/return, F18); (e) nama konstanta cabang mengandung petunjuk
+// varian opaque/payload (whole-token: other|unknown|custom|generic|raw|
+// opaque|extra|extension|arbitrary|payload; data|bytes hanya sebagai token
+// terakhir) — varian unit (mis. RuntimeEnvironmentUpdated, DATA_CLEARED,
+// WITHDRAW_ALL) SENGAJA tidak di-flag. Cabang catch-all `else` yang
+// flag-only dan non-terminating ikut di-flag sebagai Info.
+// Severity Info (wasit: heuristik nama saja tak bisa konfirmasi payload-
+// bearing; nama konstanta bisa salah label — F23). Batas diketahui: switch-
+// statement belum ditangani; rantai if bersarang kini dipindai (F20, satu
+// kandidat per rantai); loop tanpa kurawal hanya bila badannya satu rantai
+// if dengan penugasan tag inline (F19); tag berupa literal numerik tanpa
+// nama konstanta tidak ter-flag; format wire varian harus dikonfirmasi dari
+// spec upstream (toVerify butir 1). Kalibrasi R24 (sesi #42, wasit atas
+// review Kiro Opus 5.5 NEEDS WORK F1-F23): tag var dari irisan identifier
+// per-cabang, hint dari operand konstanta saja, cursor via aturan panggilan
+// terdalam/indeks/fallback, konsumsi via panggilan apa pun dengan cursor +
+// assembly + advance offset ketat, alias cursor, terminator, else, do-while,
+// dedupe loop bersarang.
+// ---------------------------------------------------------------------------
+// Token petunjuk varian opaque (whole-token, F13): `data`/`bytes` hanya
+// dihitung bila menjadi token TERAKHIR nama konstanta (Kind.Data, ITEM_DATA
+// — bukan BYTES32_ROOT / METADATA_HASH).
+const D24_STRONG_HINT_TOKENS = new Set(["other", "unknown", "custom", "generic", "raw", "opaque", "extra", "extension", "arbitrary", "payload"]);
+const D24_WEAK_HINT_LAST_TOKENS = new Set(["data", "bytes"]);
+const D24_TYPE_NAMES = new Set(["uint8", "uint16", "uint32", "uint64", "uint128", "uint256", "int8", "int16", "int32", "int64", "int128", "int256", "uint", "int", "bytes", "bytes32", "address", "bool", "string"]);
+const D24_CONSUME_VERB_RE = /^(?:decode\w*|read\w*|parse\w*|consume\w*|skip\w*|advance\w*|extract\w*|next\w*)$/i;
+
+// Pecah nama konstanta menjadi token (garis bawah + batas camelCase +
+// digit): DIGEST_ITEM_OTHER -> [digest, item, other]; DATA_CLEARED ->
+// [data, cleared]; EXTRACTED -> [extracted]; BYTES32_ROOT -> [bytes32, root].
+function d24NameTokens(name) {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .split(/[^A-Za-z0-9]+/)
+    .map((t) => t.toLowerCase())
+    .filter(Boolean);
+}
+
+// Apakah operand konstanta mengandung petunjuk varian opaque/payload?
+function d24ConstantHasPayloadHint(constText) {
+  if (!constText) return false;
+  const toks = d24NameTokens(constText);
+  if (toks.length === 0) return false;
+  if (toks.some((t) => D24_STRONG_HINT_TOKENS.has(t))) return true;
+  return D24_WEAK_HINT_LAST_TOKENS.has(toks[toks.length - 1]);
+}
+
+// Operand konstanta dari kondisi `TAG == CONST` / `CONST == TAG` (juga bila
+// kondisi majemuk `TAG == CONST && ...`): sisi yang TIDAK memuat variabel
+// tag; ambil identifier pertama (boleh member-access `Kind.Other`). Tag var
+// bernama `payloadType` (F15) atau predikat `!cfg.allowOther` (F14) tak
+// pernah sampai ke uji hint karena yang diuji hanya operand konstanta ini.
+function d24ConstantOf(cond, tagVar) {
+  const parts = cond.split("==");
+  if (parts.length < 2) return null;
+  const tagRe = new RegExp("\\b" + d24EscapeRegExp(tagVar) + "\\b");
+  for (const p of parts) {
+    if (tagRe.test(p)) continue;
+    const m = p.match(/([A-Za-z_][\w.]*)/);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// Akhir `)` yang seimbang mulai di `(` pada openIdx; -1 bila tak seimbang.
+function d24ParenEnd(text, openIdx) {
+  let d = 0;
+  for (let i = openIdx; i < text.length; i++) {
+    if (text[i] === "(") d++;
+    else if (text[i] === ")") { d--; if (d === 0) return i; }
+  }
+  return -1;
+}
+
+// Parse rantai if/else-if/else mulai di indeks `if` (teks sudah
+// stripComments). Kembalikan { branches: [{ cond, condStart, body,
+// bodyStart, bodyEnd, isElse }], end } atau null bila bentuk tak dikenali.
+function d24ParseIfChain(text, ifIdx) {
+  const branches = [];
+  const continuations = [];
+  let pos = ifIdx;
+  let first = true;
+  while (true) {
+    let cond = null, condStart = -1;
+    if (!first) {
+      // pos menunjuk "else": lewati spasi, cek "if" berikut atau else polos.
+      let j = pos + 4;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text.slice(j, j + 2) === "if" && !/\w/.test(text[j + 2] || "")) {
+        continuations.push(j);
+        pos = j;
+      } else {
+        let b = j;
+        while (b < text.length && /\s/.test(text[b])) b++;
+        if (text[b] !== "{") return null;
+        const end = blockEndIndex(text, b);
+        if (end === -1) return null;
+        branches.push({ cond: null, condStart: -1, body: text.slice(b + 1, end), bodyStart: b + 1, bodyEnd: end, isElse: true });
+        return { branches, continuations, end: end + 1 };
+      }
+    }
+    // Parse kondisi: `if (` ... `)`.
+    let p = pos + 2;
+    while (p < text.length && /\s/.test(text[p])) p++;
+    if (text[p] !== "(") return null;
+    const close = d24ParenEnd(text, p);
+    if (close === -1) return null;
+    cond = text.slice(p + 1, close);
+    condStart = pos;
+    // Badan: `{` ... `}` atau satu statement `...;`.
+    let b = close + 1;
+    while (b < text.length && /\s/.test(text[b])) b++;
+    let body, bodyEnd;
+    if (text[b] === "{") {
+      const end = blockEndIndex(text, b);
+      if (end === -1) return null;
+      body = text.slice(b + 1, end);
+      bodyEnd = end + 1;
+    } else {
+      const semi = text.indexOf(";", b);
+      if (semi === -1) return null;
+      body = text.slice(b, semi + 1);
+      bodyEnd = semi + 1;
+    }
+    branches.push({ cond, condStart, body, bodyStart: b, bodyEnd, isElse: false });
+    // Lanjut: `else` sesudah badan?
+    let e = bodyEnd;
+    while (e < text.length && /\s/.test(text[e])) e++;
+    if (text.slice(e, e + 4) === "else" && !/\w/.test(text[e + 4] || "")) {
+      pos = e;
+      first = false;
+      continue;
+    }
+    return { branches, continuations, end: bodyEnd };
+  }
+}
+
+function d24EscapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Panggilan yang TIDAK memajukan cursor (view/pure/terminating/emit) dan
+// kata kunci kontrol yang bukan panggilan: `abi.*` (abi.decode tidak
+// memajukan offset, F7) ditangani terpisah.
+const D24_PURE_CALLS = new Set(["require", "assert", "revert", "keccak256", "sha256", "ripemd160", "ecrecover", "addmod", "mulmod"]);
+const D24_SKIP_CALLS = new Set(["if", "for", "while", "do", "return", "switch", "catch", "try", "new", "delete"]);
+
+// Apakah badan cabang mengonsumsi payload?
+// - cursor null (mode state-based, F5): panggilan kata-kerja consume apa
+//   pun (kecuali `abi.*`) dihitung konsumsi.
+// - cursor dikenal: (a) advance offset (`cursor.offset +=/++/= cursor...`
+//   atau `cursor +=/++` untuk cursor indeks, F2/F10); (b) blok `assembly`
+//   yang menyebut cursor (konservatif, F6); (c) panggilan apa pun (kecuali
+//   `abi.*` + panggilan murni/view + `emit` + kata kunci) yang argumennya
+//   menyebut cursor/alias ATAU receiver-nya cursor/alias — helper tak
+//   dikenal yang menerima cursor bisa memajukannya (struct memory
+//   by-reference), F8/F9. `require`/`assert`/pure builtins tidak memajukan.
+//   Alias (F17) dihitung sebagai cursor.
+function d24BranchConsumes(body, cursor, aliases) {
+  const names = aliases && aliases.size > 0 ? aliases : (cursor ? new Set([cursor]) : new Set());
+  // (b) assembly yang menyebut cursor.
+  if (cursor && /\bassembly\b/.test(body)) {
+    for (const n of names) {
+      if (new RegExp("\\b" + d24EscapeRegExp(n) + "\\b").test(body)) return true;
+    }
+  }
+  if (!cursor) {
+    // Mode state-based: kata kerja consume saja.
+    const callRe = /(?:(\w+)\s*\.\s*)?(\w+)\s*\(/g;
+    let m;
+    while ((m = callRe.exec(body)) !== null) {
+      if (m[1] === "abi") continue;
+      if (D24_CONSUME_VERB_RE.test(m[2])) return true;
+    }
+    return false;
+  }
+  // (a) advance offset — `=` di sini HANYA bila RHS menyebut offset yang
+  // sama; `offset == ...` (perbandingan) dan `offset = 0` (reset) TIDAK
+  // dihitung (F10). `(?<!\.)` mencegah `slice.offset` cocok untuk cursor
+  // indeks bernama `offset`.
+  for (const n of names) {
+    const esc = d24EscapeRegExp(n);
+    if (new RegExp("\\b" + esc + "\\.offset\\s*(?:\\+=|\\+\\+|=(?!=)[^;]*\\b" + esc + "\\.offset\\b)").test(body)) return true;
+    if (new RegExp("(?<!\\.)\\b" + esc + "\\s*(?:\\+=|\\+\\+|=(?!=)[^;]*\\b" + esc + "\\b)").test(body)) return true;
+  }
+  // (c) panggilan apa pun dengan cursor sebagai argumen/receiver.
+  const callRe = /(?:(\w+)\s*\.\s*)?(\w+)\s*\(/g;
+  let m;
+  while ((m = callRe.exec(body)) !== null) {
+    const recv = m[1] || null;
+    const verb = m[2];
+    if (recv === "abi") continue;
+    if (D24_PURE_CALLS.has(verb)) continue;
+    if (D24_SKIP_CALLS.has(verb)) continue;
+    if (/emit\s*$/.test(body.slice(0, m.index))) continue;
+    if (recv && names.has(recv)) return true;
+    const openIdx = m.index + m[0].length - 1;
+    const close = d24ParenEnd(body, openIdx);
+    if (close === -1) continue;
+    const args = body.slice(openIdx + 1, close);
+    for (const n of names) {
+      if (new RegExp("\\b" + d24EscapeRegExp(n) + "\\b").test(args)) return true;
+    }
+  }
+  return false;
+}
+
+// Teks depth-0 badan cabang (di luar semua `{...}`, string literal di-mask)
+// untuk cek terminator tingkat atas.
+function d24TopLevelText(body) {
+  let out = "", depth = 0, i = 0, q = null;
+  while (i < body.length) {
+    const ch = body[i];
+    if (q) {
+      if (ch === "\\") { i += 2; continue; }
+      if (ch === q) q = null;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { q = ch; i++; continue; }
+    if (ch === "{") { depth++; i++; continue; }
+    if (ch === "}") { depth = Math.max(0, depth - 1); i++; continue; }
+    if (depth === 0) out += ch;
+    i++;
+  }
+  return out;
+}
+
+// Cabang yang terminasi di tingkat atas (`revert`/`break`/`return` sebagai
+// statement sendiri) tidak bisa men-desync item berikutnya (F18);
+// `revert` kondisional (`if (x) revert ...;`) TIDAK dihitung karena jalur
+// lain tetap lanjut tanpa konsumsi.
+function d24BranchTerminates(body) {
+  const top = d24TopLevelText(body);
+  return top.split(";").some((st) => /^\s*(revert|break|return)\b/.test(st));
+}
+
+// Alias cursor: `Type alias = cursor;` / `alias = cursor;` sebelum rantai
+// (F17: `ByteSlice memory s = slice;` lalu `readBytes(s)` ikut memajukan
+// `slice.offset`). Diulang 2 putaran untuk rantai alias.
+function d24FindAliases(textBefore, cursor) {
+  const aliases = new Set([cursor]);
+  for (let round = 0; round < 2; round++) {
+    let changed = false;
+    for (const a of [...aliases]) {
+      const re = new RegExp("([A-Za-z_]\\w*)\\s*=\\s*" + d24EscapeRegExp(a) + "\\s*;", "g");
+      let m;
+      while ((m = re.exec(textBefore)) !== null) {
+        if (m[1] !== a && !aliases.has(m[1])) { aliases.add(m[1]); changed = true; }
+      }
+    }
+    if (!changed) break;
+  }
+  return aliases;
+}
+
+// Cari nama cursor: (1) dari penugasan variabel tag di badan loop sebelum
+// rantai (`kind = Bytes.readByte(slice)` -> `slice`); (2) fallback:
+// identifier argumen paling umum di panggilan consume cabang-cabang.
+// Cari nama cursor dari penugasan variabel tag (`kind = ...`) di badan loop
+// sebelum rantai; null bila tak dapat diturunkan (mode state-based:
+// konsumsi dinilai dari kata kerja saja). Urutan: (a) panggilan terdalam
+// yang argumen pertamanya identifier polos / member-access polos
+// (`uint8(readByte(slice))` -> `slice`; `Bytes.toUint8(Bytes.read(slice,1))`
+// -> `slice`; `readByte(slice.data)` -> `slice`); (b) ekspresi indeks
+// `arr[idx]` -> `idx` (cursor indeks: `enc[offset]` -> `offset`); (c) bila
+// RHS tanpa panggilan: identifier pertama (`slice.data[...]` -> `slice`);
+// (d) fallback: identifier argumen paling umum di panggilan consume
+// cabang-cabang. (a)/(b) memperbaiki F1/F2; (d) yang kosong -> null (F5).
+function d24FindCursor(loopBody, chainStart, tagVar, branches) {
+  const before = loopBody.slice(0, chainStart);
+  const assignRe = new RegExp("(?:^|[;{}])\\s*(?:[A-Za-z_][\\w.]*\\s+){0,2}" + d24EscapeRegExp(tagVar)
+    + "\\s*=(?!=)\\s*([^;]+);", "g");
+  let m, last = null;
+  while ((m = assignRe.exec(before)) !== null) last = m[1];
+  if (last) {
+    // (a) panggilan terdalam: kumpulkan semua panggilan di RHS; ambil
+    // kandidat TERAKHIR yang argumen pertamanya identifier polos /
+    // member-access polos (tanpa parens/bracket di argumennya).
+    const callRe = /(?:\w+\s*\.\s*)?\w+\s*\(/g;
+    let cm, candidate = null;
+    while ((cm = callRe.exec(last)) !== null) {
+      const openIdx = cm.index + cm[0].length - 1;
+      const close = d24ParenEnd(last, openIdx);
+      if (close === -1) continue;
+      const args = last.slice(openIdx + 1, close).split(",").map((a) => a.trim()).filter(Boolean);
+      if (args.length === 0) continue;
+      const firstArg = args[0];
+      if (/[(\[]/.test(firstArg)) continue;
+      const plain = firstArg.match(/^([A-Za-z_]\w*)$/);
+      if (plain) { candidate = plain[1]; continue; }
+      const member = firstArg.match(/^([A-Za-z_]\w*)\./);
+      if (member) candidate = member[1];
+    }
+    if (candidate) return candidate;
+    // (b) ekspresi indeks `arr[idx]`: identifier pertama di dalam `[...]`.
+    const idxM = last.match(/\[([^\]]*)\]/);
+    if (idxM) {
+      const idIn = idxM[1].match(/([A-Za-z_]\w*)/);
+      if (idIn) return idIn[1];
+    }
+    // (c) RHS tanpa panggilan: identifier pertama.
+    if (!/\(/.test(last)) {
+      const id = last.match(/([A-Za-z_]\w*)/);
+      if (id) return id[1];
+    }
+    // RHS berupa panggilan tanpa argumen identifier (mis. `readByte()`)
+    // -> null (mode state-based).
+    return null;
+  }
+  const counts = new Map();
+  for (const b of branches) {
+    const callRe = /(?:(\w+)\s*\.\s*)?(\w+)\s*\(/g;
+    let cm;
+    while ((cm = callRe.exec(b.body)) !== null) {
+      if (!D24_CONSUME_VERB_RE.test(cm[2])) continue;
+      const openIdx = cm.index + cm[0].length - 1;
+      const close = d24ParenEnd(b.body, openIdx);
+      if (close === -1) continue;
+      const args = b.body.slice(openIdx + 1, close);
+      for (const idm of args.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
+        counts.set(idm[1], (counts.get(idm[1]) || 0) + 1);
+      }
+    }
+  }
+  let best = null, bestN = 0;
+  for (const [k, v] of counts) { if (v > bestN) { best = k; bestN = v; } }
+  return best;
+}
+
+// Variabel tag = identifier yang muncul di SEMUA kondisi rantai (minus
+// nama tipe), dan punya penugasan di badan loop sebelum rantai (gerbang
+// F22/j2: tag yang dibaca sekali sebelum loop / parameter fungsi bukan
+// dispatch per-item). Bila >1 kandidat, pilih yang punya penugasan; bila
+// tak ada yang unik -> null.
+function d24TagVarFromConds(conds, loopBodyBefore, firstCond) {
+  const perBranch = conds.map((c) => {
+    const ids = new Set();
+    for (const m of c.matchAll(/\b([A-Za-z_]\w*)\b/g)) {
+      if (!D24_TYPE_NAMES.has(m[1])) ids.add(m[1]);
+    }
+    return ids;
+  });
+  let common = perBranch[0] || new Set();
+  for (const s of perBranch.slice(1)) {
+    common = new Set([...common].filter((x) => s.has(x)));
+  }
+  const hasAssign = (name) => new RegExp("(?:^|[;{}])\\s*(?:[A-Za-z_][\\w.]*\\s+){0,2}" + d24EscapeRegExp(name) + "\\s*=(?!=)").test(loopBodyBefore)
+    || new RegExp("\\b" + d24EscapeRegExp(name) + "\\s*=(?!=)").test(firstCond);
+  const assigned = [...common].filter(hasAssign);
+  if (assigned.length === 1) return assigned[0];
+  return null;
+}
+
+// Daftar badan loop dalam satu fungsi: {text, start, braceless} — start =
+// indeks awal teks badan di dalam fn.body. Mencakup for/while ber-kurawal,
+// do-while ber-kurawal, dan for/while tanpa kurawal yang badannya satu
+// rantai if (braceless, F19 — gerbang tag dibatasi penugasan inline di
+// kondisi pertama).
+function d24FindLoopBodies(fnBody) {
+  const out = [];
+  const re = /\b(for|while|do)\b/g;
+  let m;
+  while ((m = re.exec(fnBody)) !== null) {
+    const kw = m[1];
+    let p = m.index + m[0].length;
+    if (kw === "do") {
+      while (p < fnBody.length && /\s/.test(fnBody[p])) p++;
+      if (fnBody[p] !== "{") continue;
+      const end = blockEndIndex(fnBody, p);
+      if (end === -1) continue;
+      out.push({ text: fnBody.slice(p + 1, end), start: p + 1, braceless: false });
+      continue;
+    }
+    // for/while: header (...).
+    while (p < fnBody.length && /\s/.test(fnBody[p])) p++;
+    if (fnBody[p] !== "(") continue;
+    const close = d24ParenEnd(fnBody, p);
+    if (close === -1) continue;
+    let b = close + 1;
+    while (b < fnBody.length && /\s/.test(fnBody[b])) b++;
+    if (fnBody[b] === "{") {
+      const end = blockEndIndex(fnBody, b);
+      if (end === -1) continue;
+      out.push({ text: fnBody.slice(b + 1, end), start: b + 1, braceless: false });
+    } else if (fnBody.slice(b, b + 2) === "if" && !/\w/.test(fnBody[b + 2] || "")) {
+      // Braceless: badan = rantai if itu sendiri.
+      const chain = d24ParseIfChain(fnBody, b);
+      if (!chain) continue;
+      out.push({ text: fnBody.slice(b, chain.end), start: b, braceless: true });
+    }
+  }
+  return out;
+}
+
+function detectVariantBranchNoPayloadConsume(source, fileName, idStart) {
+  // Lewati file test/mock/script seperti detektor lain (konvensi D22/D23).
+  if (/(^|\/)(mocks?|test|tests?|script|scripts?)\//i.test(fileName)
+    || /\.t\.sol$/i.test(fileName)
+    || /\.s\.sol$/i.test(fileName)
+    || /(^|\/)(Mock|Harness)[A-Za-z0-9_]*\.sol$/.test(fileName)
+    || /(Mock|Harness)\.sol$/.test(fileName)) return [];
+  const clean = stripComments(source);
+  const lineOf = (idx) => clean.slice(0, idx).split("\n").length - 1;
+  const fns = extractFunctions(clean);
+  const out = [];
+  for (const fn of fns) {
+    const body = fn.body;
+    const seenChains = new Set();
+    for (const loop of d24FindLoopBodies(body)) {
+      const loopBody = loop.text;
+      const loopBodyStart = loop.start;
+      const skipIfs = new Set();
+      const ifRe = /\bif\s*\(/g;
+      let im;
+      while ((im = ifRe.exec(loopBody)) !== null) {
+        if (skipIfs.has(im.index)) continue;
+        const chain = d24ParseIfChain(loopBody, im.index);
+        if (!chain || chain.branches.length < 2) continue;
+        for (const c of chain.continuations || []) skipIfs.add(c);
+        const conds = chain.branches.filter((br) => br.cond !== null);
+        if (conds.length < 1) continue;
+        const tagVar = d24TagVarFromConds(conds.map((br) => br.cond), loopBody.slice(0, im.index), conds[0].cond);
+        if (!tagVar) continue;
+        const cursor = d24FindCursor(loopBody, im.index, tagVar, conds);
+        const aliases = cursor ? d24FindAliases(body.slice(0, loopBodyStart + im.index), cursor) : null;
+        const allBranches = chain.branches;
+        const consumes = allBranches.map((br) => d24BranchConsumes(br.body, cursor, aliases));
+        if (!consumes.some(Boolean)) continue;
+        // Dedupe: rantai yang sama bisa ditemukan lewat loop luar + loop
+        // dalam (F21) — kunci posisi absolut di badan fungsi.
+        const dedupeKey = fn.name + ":" + (loopBodyStart + im.index);
+        if (seenChains.has(dedupeKey)) continue;
+        seenChains.add(dedupeKey);
+        for (let k = 0; k < allBranches.length; k++) {
+          if (consumes[k]) continue;
+          const br = allBranches[k];
+          if (d24BranchTerminates(br.body)) continue;
+          let condLabel;
+          if (br.cond === null) {
+            condLabel = "catch-all `else`";
+          } else {
+            if (!d24ConstantHasPayloadHint(d24ConstantOf(br.cond, tagVar))) continue;
+            condLabel = "`" + br.cond.trim().replace(/\s+/g, " ") + "`";
+          }
+          const consumerConds = allBranches.filter((_, j) => consumes[j])
+            .map((c) => c.cond === null ? "catch-all `else`" : "`" + c.cond.trim().replace(/\s+/g, " ") + "`").join(", ");
+          const condPos = br.cond === null ? br.bodyStart : br.condStart;
+          const lineNo = lineOf(fn.startIndex + loopBodyStart + condPos) + 1;
+          out.push(normalizeCandidate({
+            id: "FA-" + String(idStart + out.length).padStart(3, "0"),
+            detector: "variant-branch-no-payload-consume",
+            title: "Cabang varian " + condLabel
+              + " tidak mengonsumsi payload — offset desync untuk item berikutnya",
+            location: { file: fileName, function: fn.name },
+            hypothesis: "Di `" + fn.name + "` (baris " + lineNo + "), loop membaca item"
+              + " demi item dari cursor `" + (cursor || "(state-based)") + "` dan men-dispatch berdasarkan `"
+              + tagVar + "`; cabang " + condLabel
+              + " hanya menandai flag tanpa membaca payload apa pun dari cursor,"
+              + " sementara cabang lain mengonsumsi payload (" + consumerConds + ")."
+              + " Cursor tidak maju di cabang ini, jadi item berikutnya ter-parse"
+              + " dari posisi yang salah (offset desync) — field payload cabang ini"
+              + " (mis. `other`) tak pernah terisi dan item sesudahnya bisa"
+              + " ter-decode sebagai tag/field palsu.",
+            preconditions: "Ada item varian opaque (Other/Unknown/Custom/...) yang"
+              + " benar-benar muncul di stream dengan payload length-prefixed"
+              + " sesudah tag-nya; loop berlanjut ke item berikutnya (bukan"
+              + " item terakhir / bukan satu-satunya varian yang dipakai).",
+            impact: "Parsing header/stream desync: digest/item sesudah varian"
+              + " opaque ter-decode salah — worst-case liveness (revert / root"
+              + " sampah ditolak downstream) bila stream harus genuinely"
+              + " finalized; bukan fund-loss langsung — severity Info.",
+            severityGuess: "Info",
+            evidence: "Cabang " + condLabel
+              + " di `" + fn.name + "` (baris " + lineNo + ") tanpa satu pun"
+              + " panggilan baca/decode/skip atas cursor `" + (cursor || "(state-based)") + "`;"
+              + " cabang lain di rantai yang sama mengonsumsi payload ("
+              + consumerConds + ").",
+            toVerify: ["Konfirmasi format wire varian ini dari spec upstream"
+              + " (mis. Substrate SCALE `DigestItem::Other(Vec<u8>)`): bila"
+              + " varian ini memang unit (tanpa payload), kandidat ini GUGUR"
+              + " — detektor hanya menandai nama varian opaque",
+              "Cek apakah stream/header bisa berisi varian opaque dari"
+              + " penyerang ATAU harus genuinely finalized (bila finalized +"
+              + " ZK-proven, worst-case hanya liveness)",
+              "Cek pemakaian downstream field payload cabang ini (mis."
+              + " `Digest.other`): bila tak pernah dibaca, dampak terbatas"
+              + " pada desync item sesudahnya",
+              "PoC fork: encode header dengan item Other ber-payload di"
+              + " tengah deretan item, decode, bandingkan hasil vs ekspektasi"],
+            source: "pattern-scan",
+          }));
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Detektor ke-25: guard-asymmetry-nav-readers (kelas H-SOMM-12 Somm Cellar —
+// sesi BB sore 22 Nov 2026, backlog detektor TERBUKA; sesi Frankenstein #56).
+// Pola: di satu kontrak, SEBAGIAN fungsi view pembaca NAV yang sama
+// ber-guard kunci reentrancy (require(!locked) / modifier nonReentrant),
+// sementara saudara sekandungnya membaca NAV yang sama TANPA guard.
+// Contoh nyata: Cellar.sol — totalAssets()/totalAssetsWithdrawable()/
+// maxWithdraw()/maxRedeem() DO require(!locked, "REENTRANCY"), sementara
+// convertToAssets/convertToShares/previewMint/previewWithdraw/
+// previewDeposit/previewRedeem (+ maxDeposit, temuan detektor ini) membaca
+// NAV lewat _getTotalAssetsAndTotalSupply() -> _calculateTotalAssets...()
+// tanpa cek locked; jalur baca lintas-Cellar nyata via
+// CellarAdaptor.balanceOf -> previewRedeem. Severity Low: latent/hardening
+// — reachability butuh jalur callback ber-hook (ERC777/ERC1363, flash-loan
+// callback, adaptor hook) di tengah tx saat locked=true; tanpa itu hanya
+// pembacaan NAV basi, bukan fund-loss langsung.
+// Cara kerja (level-file, per kontrak): entry point = fungsi public/
+// external view/pure; guard = require(!X)/require(X==false)/assert(!X)/
+// if (X) revert atas var bernama kunci-reentrancy (lock/reentr/entered/
+// status/incall) ATAU modifier *reentr*; dua entry point dianggap
+// "saudara NAV" bila closure panggilan transitifnya beririsan pada helper
+// view internal yang sama (helper pure dikecualikan — matematika murni
+// seperti _convertToAssets bukan pembacaan NAV), ATAU bila keduanya membaca
+// langsung state var yang sama dengan saudara ber-guard. Kelompok saudara
+// dengan >=1 ber-guard DAN >=1 tanpa guard -> tiap yang tanpa guard
+// di-flag Low. Guard diteruskan lewat closure (entry yang memanggil fungsi
+// ber-guard ikut ber-guard).
+// KALIBRASI R25 (wasit atas review Kiro Opus 5.5 NEEDS WORK, sesi #56,
+// 11 temuan F1–F11 SEMUA TERBUKTI — detail di
+// docs/kiro-crew-review-2026-11-22-d25.md): F1 propagasi guard lewat closure;
+// F2 guard via helper internal + modifier *reentr*; F3 matchAll per pola;
+// F4 bentuk guard uint/getter/member (_status != _ENTERED, unlocked == 1,
+// slot0.unlocked, _reentrancyGuardEntered()); F5 nama jebakan ditolak
+// (depositsLocked, timelocked, lockedUntil, unlocked polaritas-terbalik);
+// F6 baca state langsung jadi kunci kelompok hanya bila var itu juga dibaca
+// langsung saudara ber-guard (tanpa ini maxMint Cellar ikut ter-flag lewat
+// shareSupplyCap + getCreditPositions lewat creditPositions); F7 panggilan
+// member x.f() diabaikan; F8 byName multimap + pengecualian-diri per objek;
+// F9 resolusi helper lintas-span satu file (unik / induk warisan); F10
+// if-revert dicek pemindai kurung-seimbang; F11 kepala signature dikupas
+// dari isi kurung sebelum uji visibility/mutabilitas.
+// Batas diketahui: helper view trivial yang membaca state (mis. decimals()
+// view) masih bisa jadi kunci kelompok — residual diketahui; panggilan
+// super./this. tidak ditelusuri; shadowing lokal senama state var bisa
+// salah-hitung baca; guard via require di constructor/initializer tidak
+// diteruskan; nomor baris dihitung dari `clean` — stripComments
+// mempertahankan newline, jadi nomor baris sama dengan source asli.
+// ---------------------------------------------------------------------------
+const D25_SKIP_CALLS = new Set(["if", "for", "while", "do", "return",
+  "switch", "catch", "try", "new", "delete", "require", "assert", "revert",
+  "keccak256", "sha256", "ripemd160", "ecrecover", "addmod", "mulmod"]);
+// State var generik yang BUKAN NAV — dibaca hampir semua fungsi view
+// (denominator/akuntansi ERC20) sehingga tidak boleh jadi kunci kelompok.
+const D25_STATE_DENY = new Set(["totalSupply", "balanceOf", "totalShares"]);
+const D25_HEAD_KNOWN = new Set(["function", "public", "external", "internal",
+  "private", "view", "pure", "payable", "override", "virtual", "returns"]);
+
+// F5: nama var kunci-reentrancy — tolak nama jebakan (depositsLocked,
+// timelocked, lockedUntil; `unlocked` hanya sah pada polaritas positif).
+function d25GuardNameOk(rawName, positive) {
+  const last = String(rawName).split(".").pop();
+  const low = last.toLowerCase();
+  if (/deposit|timelock|until/.test(low)) return false;
+  if (/unlocked/.test(low)) return !!positive;
+  return /(lock|reentr|entered|status|incall)/.test(low);
+}
+// F4: nama "terbuka" untuk polaritas positif (unlocked / _status == 1).
+function d25UnlockedNameOk(rawName) {
+  const last = String(rawName).split(".").pop();
+  const low = last.toLowerCase();
+  if (/deposit|timelock|until/.test(low)) return false;
+  return /(unlocked|status)/.test(low);
+}
+// F4: guard dua sisi — `!=` sah bila satu sisi status/lock dan sisi lain
+// sentinel ENTERED/LOCKED; `==` sah bila sisi lain sentinel NOT_ENTERED.
+function d25TwoSideGuard(a, b, op) {
+  const la = String(a).split(".").pop().toLowerCase();
+  const lb = String(b).split(".").pop().toLowerCase();
+  const statusLike = (s) => /(status|lock|reentr)/.test(s);
+  const enteredLike = (s) => /(entered|locked)/.test(s);
+  const notEnteredLike = (s) => /(not_entered|notentered|unlocked)/.test(s);
+  if (op === "!=") {
+    return (statusLike(la) && enteredLike(lb))
+      || (statusLike(lb) && enteredLike(la));
+  }
+  return (statusLike(la) && notEnteredLike(lb))
+    || (statusLike(lb) && notEnteredLike(la));
+}
+// F11: kupas isi kurung (parameter + returns + argumen modifier) dari
+// signature sebelum uji visibility/mutabilitas/modifier.
+function d25StripParens(s) {
+  let out = "", depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") { if (depth > 0) depth--; }
+    else if (depth === 0) out += ch;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+function d25Head(fn) {
+  return d25StripParens(fn.signature || "");
+}
+// F10: sesudah `if (cond)` — `revert` di badan-if? Pemindai kurung-seimbang:
+// blok `{...}` hanya sampai kurung tutupnya (else bukan bagian if);
+// pernyataan tunggal hanya sampai `;` pertama.
+function d25IfReverts(body, end) {
+  let i = end;
+  while (i < body.length && /\s/.test(body[i])) i++;
+  const isWord = (c) => /[A-Za-z0-9_$]/.test(c || "");
+  const hasRevertAt = (j) => body.slice(j, j + 6) === "revert"
+    && !isWord(body[j + 6]) && (j === 0 || !isWord(body[j - 1]));
+  if (body[i] === "{") {
+    let depth = 0;
+    for (let j = i; j < body.length && j < i + 600; j++) {
+      const ch = body[j];
+      if (ch === "{") depth++;
+      else if (ch === "}") { depth--; if (depth === 0) return false; }
+      else if (depth >= 1 && hasRevertAt(j)) return true;
+    }
+    return false;
+  }
+  for (let j = i; j < body.length && j < i + 600; j++) {
+    const ch = body[j];
+    if (ch === ";" || ch === "{") return false;
+    if (hasRevertAt(j)) return true;
+  }
+  return false;
+}
+// F10: semua kemunculan `if (cond)` — uji bentuk kondisi + pemindai revert.
+function d25FindIfGuard(body) {
+  const re = /\bif\s*\(/g;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    let depth = 0, j = m.index + m[0].length - 1;
+    for (; j < body.length; j++) {
+      if (body[j] === "(") depth++;
+      else if (body[j] === ")") { depth--; if (depth === 0) break; }
+    }
+    if (depth !== 0) continue;
+    const cond = body.slice(m.index + m[0].length, j).trim();
+    const end = j + 1;
+    let ok = false, mm;
+    // `if (locked)` / `if (locked == true)` — revert saat kunci aktif.
+    // `if (!locked)` SENGAJA tidak dihitung (itu require(locked), bukan guard).
+    if ((mm = /^([A-Za-z_][\w.]*)\s*(?:\(\s*\))?$/.exec(cond))) {
+      ok = d25GuardNameOk(mm[1], false);
+    } else if ((mm = /^([A-Za-z_][\w.]*)\s*==\s*true$/.exec(cond))) {
+      ok = d25GuardNameOk(mm[1], false);
+    } else if ((mm = /^([A-Za-z_][\w.]*)\s*==\s*([A-Za-z_][\w.]*)$/.exec(cond))) {
+      // if-form polaritas TERBALIK dari require: `if (A == ENTERED) revert`
+      // = guard, `if (A == NOT_ENTERED) revert` = bukan guard.
+      ok = d25TwoSideGuard(mm[1], mm[2], "!=");
+    } else if ((mm = /^([A-Za-z_][\w.]*)\s*!=\s*([A-Za-z_][\w.]*)$/.exec(cond))) {
+      ok = d25TwoSideGuard(mm[1], mm[2], "==");
+    }
+    if (ok && d25IfReverts(body, end)) {
+      return body.slice(m.index, Math.min(body.length, end + 40))
+        .replace(/\s+/g, " ").trim();
+    }
+  }
+  return null;
+}
+// Bentuk guard dalam satu fungsi — SEMUA kecocokan per pola (F3), bukan
+// exec pertama. Mengembalikan teks kecocokan pertama yang lolos, atau null.
+function d25GuardForm(fn) {
+  const head = d25Head(fn);
+  // F2: modifier bernama *reentr* (nonReentrantView dst.).
+  for (const tok of head.split(/\s+/)) {
+    if (!tok || D25_HEAD_KNOWN.has(tok) || tok === fn.name) continue;
+    if (/reentr/i.test(tok)) return "modifier " + tok;
+  }
+  const body = fn.body || "";
+  // F4: require/assert bentuk negasi (termasuk `!locked && ...`) + getter.
+  const negPats = [
+    /require\s*\(\s*!\s*([A-Za-z_][\w.]*)\b/g,
+    /require\s*\(\s*([A-Za-z_][\w.]*)\s*==\s*false\b/g,
+    /require\s*\(\s*([A-Za-z_][\w.]*)\s*!=\s*true\b/g,
+    /assert\s*\(\s*!\s*([A-Za-z_][\w.]*)\b/g,
+    /require\s*\(\s*!\s*([A-Za-z_][\w.]*)\s*\(\s*\)/g,
+  ];
+  for (const re of negPats) {
+    let m;
+    re.lastIndex = 0;
+    while ((m = re.exec(body)) !== null) {
+      if (d25GuardNameOk(m[1], false)) {
+        return m[0].replace(/\s+/g, " ").trim().replace(/,\s*$/, "");
+      }
+    }
+  }
+  // F4: require dua sisi (_status != _ENTERED / _status == _NOT_ENTERED).
+  const two = /require\s*\(\s*([A-Za-z_][\w.]*)\s*(!=|==)\s*([A-Za-z_][\w.]*)\b/g;
+  let tm;
+  two.lastIndex = 0;
+  while ((tm = two.exec(body)) !== null) {
+    if (d25TwoSideGuard(tm[1], tm[3], tm[2])) {
+      return tm[0].replace(/\s+/g, " ").trim();
+    }
+  }
+  // F4: polaritas positif (unlocked == 1 / _status == 1 / require(unlocked)).
+  const posPats = [
+    /require\s*\(\s*([A-Za-z_][\w.]*)\s*==\s*(?:1|true)\b/g,
+    /require\s*\(\s*([A-Za-z_][\w.]*)\s*(?:,|\))/g,
+  ];
+  for (const re of posPats) {
+    let m;
+    re.lastIndex = 0;
+    while ((m = re.exec(body)) !== null) {
+      if (d25UnlockedNameOk(m[1])) {
+        return m[0].replace(/\s+/g, " ").trim().replace(/,\s*$/, "");
+      }
+    }
+  }
+  // F10: if (...) revert.
+  return d25FindIfGuard(body);
+}
+// F7: nama panggilan dalam badan (sesudah `{` pertama — nama fungsi sendiri
+// di signature bukan panggilan); panggilan member x.f( diabaikan.
+function d25CalledNames(fn) {
+  const out = new Set();
+  const body = fn.body || "";
+  const code = body.slice(body.indexOf("{"));
+  const re = /\b([A-Za-z_]\w*)\s*\(/g;
+  let m;
+  while ((m = re.exec(code)) !== null) {
+    if (D25_SKIP_CALLS.has(m[1])) continue;
+    let k = m.index - 1;
+    while (k >= 0 && /\s/.test(code[k])) k--;
+    if (k >= 0 && code[k] === ".") continue;
+    out.add(m[1]);
+  }
+  return out;
+}
+// F6: state var yang dibaca langsung dalam badan fungsi (sesudah `{`).
+function d25StateReads(fn, stateVars) {
+  const out = new Set();
+  const body = fn.body || "";
+  const code = body.slice(body.indexOf("{"));
+  for (const v of stateVars) {
+    const esc = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp("\\b" + esc + "\\b").test(code)) out.add(v);
+  }
+  return out;
+}
+function detectGuardAsymmetryNavReaders(source, fileName, idStart) {
+  // Lewati file test/mock/script seperti detektor lain (konvensi D22/D23).
+  if (/(^|\/)(mocks?|test|tests?|script|scripts?)\//i.test(fileName)
+    || /\.t\.sol$/i.test(fileName)
+    || /(^|\/)Mock/i.test(fileName)) return [];
+  const clean = stripComments(source);
+  const fns = extractFunctions(clean);
+  if (fns.length < 2) return [];
+  // State var per kontrak (F6): nama + indeks, untuk kunci baca-langsung.
+  const allStateVars = scanStateVarDecls(clean);
+  const hits = [];
+  // Indeks file-level untuk resolusi lintas-span (F9).
+  const fileByName = new Map();
+  for (const span of contractSpans(clean)) {
+    for (const f of fns) {
+      if (f.startIndex < span.start || f.startIndex > span.end) continue;
+      if (!fileByName.has(f.name)) fileByName.set(f.name, []);
+      fileByName.get(f.name).push({ fn: f, span });
+    }
+  }
+  function d25Resolve(name, span, byName) {
+    if (byName.has(name)) return byName.get(name);
+    const cands = (fileByName.get(name) || []).filter((c) => c.span !== span);
+    if (!cands.length) return [];
+    if (cands.length === 1) return [cands[0].fn];
+    const parents = new Set(span.parents || []);
+    const inParents = cands.filter((c) => parents.has(c.span.name));
+    if (inParents.length === 1) return [inParents[0].fn];
+    return []; // ambigu lintas kontrak — konservatif, lewati
+  }
+  // Per kontrak (bukan per file): dua kontrak satu file dengan helper
+  // bernama sama tidak boleh tercampur.
+  for (const span of contractSpans(clean)) {
+    if (span.kind === "interface") continue;
+    const inSpan = fns.filter((f) =>
+      f.startIndex >= span.start && f.startIndex <= span.end);
+    // F8: multimap — semua overload ditelusuri.
+    const byName = new Map();
+    for (const f of inSpan) {
+      if (!byName.has(f.name)) byName.set(f.name, []);
+      byName.get(f.name).push(f);
+    }
+    const spanStateVars = allStateVars
+      .filter((d) => d.nameIndex >= span.start && d.nameIndex <= span.end)
+      .map((d) => d.name)
+      .filter((n) => !D25_STATE_DENY.has(n)
+        && !d25GuardNameOk(n, false) && !d25GuardNameOk(n, true));
+    const entries = inSpan.filter((f) =>
+      !f.isConstructor
+      && /\b(?:public|external)\b/.test(d25Head(f))
+      && /\b(?:view|pure)\b/.test(d25Head(f)));
+    if (entries.length < 2) continue;
+    // Closure per entry: helper view + semua callee (untuk propagasi guard).
+    const closures = entries.map((e) => {
+      const seen = new Set();
+      const stack = [];
+      for (const n of d25CalledNames(e)) {
+        for (const r of d25Resolve(n, span, byName)) stack.push(r);
+      }
+      const viewHelpers = new Set();
+      const calledFns = new Set();
+      while (stack.length) {
+        const callee = stack.pop();
+        if (!callee || seen.has(callee) || callee === e) continue;
+        seen.add(callee);
+        calledFns.add(callee);
+        const h = d25Head(callee);
+        if (/\bview\b/.test(h) && !/\bpure\b/.test(h)) viewHelpers.add(callee);
+        for (const n of d25CalledNames(callee)) {
+          for (const r of d25Resolve(n, span, byName)) {
+            if (!seen.has(r)) stack.push(r);
+          }
+        }
+      }
+      return { viewHelpers, calledFns,
+        directReads: d25StateReads(e, spanStateVars) };
+    });
+    // Guard status: bentuk sendiri ATAU lewat closure (F1/F2).
+    const guardForms = entries.map((e, i) => {
+      const own = d25GuardForm(e);
+      if (own) return own;
+      for (const c of closures[i].calledFns) {
+        const g = d25GuardForm(c);
+        if (g) return g + " (via " + c.name + ")";
+      }
+      return null;
+    });
+    // F6: kunci baca-langsung hanya sah bila var itu juga dibaca langsung
+    // oleh saudara ber-guard (tanpa ini maxMint/getCreditPositions Cellar
+    // ikut ter-flag).
+    const guardedDirectReads = new Set();
+    entries.forEach((e, i) => {
+      if (guardForms[i]) {
+        for (const v of closures[i].directReads) guardedDirectReads.add(v);
+      }
+    });
+    const keySets = entries.map((e, i) => {
+      const keys = new Set(closures[i].viewHelpers);
+      for (const v of closures[i].directReads) {
+        if (guardedDirectReads.has(v)) keys.add("var:" + v);
+      }
+      return keys;
+    });
+    // Union-find: entry point bersaudara bila kunci beririsan.
+    const parent = entries.map((_, i) => i);
+    const find = (x) => {
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      return x;
+    };
+    const union = (a, b) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    };
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        for (const k of keySets[i]) {
+          if (keySets[j].has(k)) { union(i, j); break; }
+        }
+      }
+    }
+    const groups = new Map();
+    entries.forEach((_, i) => {
+      const r = find(i);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(i);
+    });
+    for (const idxs of groups.values()) {
+      if (idxs.length < 2) continue;
+      const guarded = idxs.filter((i) => guardForms[i]);
+      const unguarded = idxs.filter((i) => !guardForms[i]);
+      if (!guarded.length || !unguarded.length) continue;
+      const guardedNames = guarded.map((i) => entries[i].name);
+      const guardedKeys = new Set();
+      for (const i of guarded) {
+        for (const k of keySets[i]) guardedKeys.add(k);
+      }
+      for (const i of unguarded) {
+        const shared = [...keySets[i]].filter((k) => guardedKeys.has(k));
+        if (!shared.length) continue;
+        const fn = entries[i];
+        const line = clean.slice(0, fn.startIndex).split("\n").length;
+        const sharedNames = shared.map((k) =>
+          typeof k === "string" ? "state `" + k.slice(4) + "`" : "helper `" + k.name + "`");
+        hits.push(normalizeCandidate({
+          id: "FA-" + String(idStart + hits.length).padStart(3, "0"),
+          detector: "guard-asymmetry-nav-readers",
+          title: "Pembaca NAV tanpa cek reentrancy, saudaranya ber-guard",
+          location: { file: fileName, function: fn.name },
+          hypothesis: "`" + fn.name + "` (baris " + line + ") membaca NAV lewat "
+            + sharedNames.join(", ") + " TANPA cek kunci reentrancy, sementara saudara sekandungnya `"
+            + guardedNames.join("`, `") + "` membaca NAV yang sama DENGAN guard ("
+            + guarded.map((g) => guardForms[g]).join("; ") + ") — nilai yang dibaca"
+            + " bisa basi/menyesatkan bila dipanggil di tengah deposit/withdraw saat kunci aktif.",
+          preconditions: "Ada jalur pemanggilan ke `" + fn.name + "` saat kunci reentrancy aktif"
+            + " (callback token ber-hook, flash-loan callback, adaptor hook, atau pembaca lintas-kontrak"
+            + " seperti adaptor balanceOf) — tanpa jalur itu pembacaan ini hanya latent.",
+          impact: "Low — NAV basi yang dibaca lintas-kontrak bisa menggerakkan keputusan deposit/withdraw/"
+            + "redeem kontrak lain; butuh jalur callback permissionless untuk jadi fund-loss — saat ini"
+            + " latent/hardening, bukan kandidat submit.",
+          severityGuess: "Low",
+          evidence: "`" + fn.name + "` tanpa cek kunci reentrancy; `" + guardedNames.join("`, `")
+            + "` ber-guard; sama-sama membaca NAV lewat " + sharedNames.join(", ") + ".",
+          toVerify: ["Cek apakah `" + fn.name + "` bisa dipanggil di tengah callback saat kunci aktif"
+            + " (token ber-hook ERC777/ERC1363, flash-loan callback, adaptor hook)",
+            "Cek apakah guard saudara adalah kunci reentrancy yang sama (bukan pause/role)",
+            "Cek pembaca lintas-kontrak yang mengandalkan nilai ini (mis. adaptor balanceOf -> " + fn.name + ")",
+            "PoC fork: aktifkan kunci lewat reentrancy lalu baca `" + fn.name + "` — bandingkan dengan saudara"
+            + " ber-guard yang revert"],
+          source: "pattern-scan",
+        }));
+      }
+    }
+  }
+  return hits;
+}
+
+// ---------------------------------------------------------------------------
+// Detektor ke-26: unbounded-loop-inflatable-set-accounting (kelas H-SOMM-19
+// Somm VestingSimple — sesi BB pagi 23 Nov 2026, backlog detektor TERBUKA;
+// sesi Frankenstein #59).
+// Pola: (kaki tumbuh) fungsi external/public TANPA kontrol akses yang
+// menambah entri ke sebuah set/array state dengan KUNCI PILIHAN CALLER
+// (parameter fungsi — bukan msg.sender saja), sehingga siapa pun bisa
+// menggelembungkan set MILIK KORBAN; (kaki baca) fungsi view di kontrak
+// yang sama yang me-loop SELURUH set itu tanpa batas/paginasi
+// (`.values()` lalu `for (i < arr.length)`, atau `.length()` langsung)
+// dan mengerjakan tiap elemen. Contoh nyata: VestingSimple.deposit()
+// (public, tanpa guard) menambah `allUserDepositIds[receiver]` dengan
+// receiver bebas + minimum 0,0001 token; `vestedBalanceOf()` me-loop
+// seluruh `allUserDepositIds[user].values()`; jalur akuntansi nyata:
+// Cellar.totalAssets -> _balanceOf -> VestingSimpleAdaptor.balanceOf
+// -> vestedBalanceOf — PoC fork sesi BB pagi 23 Nov: ±9.846 gas/entri,
+// brick totalAssets pada ±3.121 entri (vestedBalanceOf OutOfGas eksplisit
+// pada gas 30M; biaya serang ±31,2 GHO + ±0,31 ETH @1 gwei); draf
+// finding Medium (BELUM DISERANG — TIDAK SIAP SUBMIT). Severity Medium:
+// mengikuti draf BB — DoS atas view akuntansi yang dipakai semua alur
+// user (deposit/withdraw/redeem/callOnAdaptor); dana beku sampai
+// intervensi governance (force-out).
+// Cara kerja (level-file, per kontrak + warisan satu file): set/array
+// state dikenali dari deklarasi (mapping ke <Prefix>.UintSet/
+// AddressSet/Bytes32Set — prefix apa pun, mis. EnumerableSet,
+// EnumerableSetUpgradeable, alias import — set polos, atau array
+// dinamis mapping/polos); grower = external/public tanpa guard pemanggil
+// + `.add(` / `.push(` dengan kunci ber-parameter (mapped) atau tanpa
+// kunci (polos — set bersama, sybil-growable); reader = external/
+// public view (atau internal view yang dipanggil view public) yang
+// me-loop panjang penuh (`.length` array hasil `.values()`, alias
+// panjangnya — termasuk alias dari `<set>.length()` — `.length()` set,
+// atau `.length` array; loop `for`/`while`, maju/mundur, kondisi
+// terbalik) sambil mengindeks elemen (arr[i] / .at(i)), tanpa `break`
+// tanpa syarat di badan loop; paginasi (bound = parameter limit/count/
+// offset) tidak cocok dengan pola panjang-penuh sehingga tidak ter-flag.
+// Penekanan (anti-FP): grower ber-guard pemanggil (only* yang benar-benar
+// membatasi caller — lihat d26HasCallerGuard) ditekan; kunci = msg.sender
+// saja ATAU mengandung msg.sender di mana pun ditekan (namespace milik
+// caller sendiri); cap jumlah entri ditekan — require/if-revert langsung,
+// operand terbalik, `length()+1`, alias panjang, cap di modifier, cap di
+// helper internal satu hop, dan `.add` di dalam blok `if (length < MAX)`;
+// file test/mock dilewati (konvensi D22/D23/D25).
+// KALIBRASI R26 (wasit atas review Kiro Opus 5.5 NEEDS WORK, sesi #59,
+// 58 kasus: 26 benar / 12 FP / 20 FN; probe wasit /tmp/probe-r26.js
+// 5/34 pra-kalibrasi — SEMUA klaim TERBUKTI kecuali F10): F1 cap
+// diperlebar (terbalik, blok-revert, +1, alias, modifier, helper,
+// guarded-add); F2 cap palsu diperbaiki (panjang harus milik set itu,
+// bukan identifier lain); F3 loop while/mundur/terbalik + alias
+// set.length(); F4 break bersyarat / break loop-dalam tidak lagi
+// membatalkan; F5 clamp sisi reader; F6 kunci kurung-bersarang, mapping
+// bersarang, alias lokal, delegasi helper satu hop; F7 kunci campuran
+// msg.sender; F8 prefix tipe set apa pun; F9 shadowing parameter/lokal;
+// F11 guard pemanggil khusus D26 (modifier keadaan/waktu/jenis +
+// validator parameter *Valid* bukan guard); F12 reader internal via
+// public view + warisan satu file. DITOLAK sbg artefak/desain: F10
+// (plain-set `.add(msg.sender)` SENGAJA di-flag — set bersama bisa
+// digelembungkan via sybil, didokumentasikan). Detail:
+// docs/kiro-crew-review-2026-11-23-d26.md.
+// Batas diketahui: minimum deposit tidak diperiksa (biaya bloat per
+// entri = toVerify — cap ekonomi vs cap jumlah entri berbeda); rantai
+// panggil ke totalAssets/balanceOf lintas-file tidak dibuktikan statis
+// di sini (toVerify); `.add(` dengan argumen konstanta tetap ter-flag
+// (kasus langka — wasit men-triase); set di dalam FIELD STRUCT (K9)
+// belum dikenali; lintas-file (X1) di luar cakupan; cap di kontrak
+// INDUK (modifier/helper di luar span) tidak ditelusuri; grower yang
+// menambah lewat helper >1 hop tidak ditelusuri.
+// ---------------------------------------------------------------------------
+// Pola deklarasi set/array state (D26). Regex /g — lastIndex di-reset
+// pemanggil sebelum tiap pemakaian. Tipe set: prefix apa pun
+// (`EnumerableSet.`, `EnumerableSetUpgradeable.`, alias import `ES.`)
+// atau tanpa prefix (F8).
+const D26_SET_RE = [
+  // mapping(K => <Prefix>.XSet) name; — tipe set adalah VALUE mapping.
+  { kind: "mappedSet", re: /mapping\s*\([^;{]*?=>\s*(?:mapping\s*\([^)]*?=>\s*(?:[A-Za-z_][\w$]*\.)?(?:UintSet|AddressSet|Bytes32Set)\s*\)|(?:[A-Za-z_][\w$]*\.)?(?:UintSet|AddressSet|Bytes32Set))\s*\)\s*(?:public|private|internal)?\s*([A-Za-z_][A-Za-z0-9_$]*)\s*;/g },
+  // <Prefix>.XSet name; (polos — set bersama)
+  { kind: "plainSet", re: /(?:[A-Za-z_][\w$]*\.)?(?:UintSet|AddressSet|Bytes32Set)\s+(?:public|private|internal)?\s*([A-Za-z_][A-Za-z0-9_$]*)\s*;/g },
+  // mapping(K => Type[]) name;
+  { kind: "mappedArr", re: /mapping\s*\([^;{]*?=>\s*(?:mapping\s*\([^)]*?=>\s*[A-Za-z_$][\w$.]*\[\]\s*\)|[A-Za-z_$][\w$.]*\[\])\s*\)\s*(?:public|private|internal)?\s*([A-Za-z_][A-Za-z0-9_$]*)\s*;/g },
+  // Type[] name; (polos)
+  { kind: "plainArr", re: /(?:^|[;{}])\s*[A-Za-z_$][\w$.]*\[\]\s+(?:public|private|internal)?\s*([A-Za-z_][A-Za-z0-9_$]*)\s*;/g },
+];
+// Indeks akhir pasangan kurung seimbang (kurawal/paren/bracket) dari posisi buka.
+function d26Balanced(text, openIdx, openCh, closeCh) {
+  let depth = 0;
+  for (let i = openIdx; i < text.length; i++) {
+    if (text[i] === openCh) depth++;
+    else if (text[i] === closeCh) { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+// Indeks `[` pembuka yang seimbang dengan `]` di closeIdx (scan mundur).
+function d26MatchingOpenBracket(text, closeIdx) {
+  let depth = 0;
+  for (let i = closeIdx; i >= 0; i--) {
+    if (text[i] === "]") depth++;
+    else if (text[i] === "[") { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+// Semua loop `for`/`while` di badan fungsi: { kind, header, body, startIndex }.
+// header = isi paren (for: `init; cond; incr`, while: kondisi); body tanpa
+// kurung luar (atau pernyataan tunggal sampai `;` bila tanpa kurawal).
+function d26Loops(body) {
+  const out = [];
+  const re = /\b(for|while)\s*\(/g;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const kind = m[1];
+    const openParen = m.index + m[0].length - 1;
+    const closeParen = d26Balanced(body, openParen, "(", ")");
+    if (closeParen === -1) continue;
+    const header = body.slice(openParen + 1, closeParen);
+    let j = closeParen + 1;
+    while (j < body.length && /\s/.test(body[j])) j++;
+    let loopBody = "";
+    if (body[j] === "{") {
+      const closeBrace = d26Balanced(body, j, "{", "}");
+      if (closeBrace === -1) continue;
+      loopBody = body.slice(j + 1, closeBrace);
+    } else {
+      const semi = body.indexOf(";", j);
+      if (semi === -1) continue;
+      loopBody = body.slice(j, semi + 1);
+    }
+    out.push({ kind, header, body: loopBody, startIndex: m.index });
+  }
+  return out;
+}
+// Semua akses `<var>[...][...]` di teks (kurung seimbang — K4/K3):
+// [{ expr, keys, startIdx, endIdx }]. minKeys 1 untuk mapped, 0 untuk polos.
+function d26SetAccesses(text, varName, minKeys) {
+  const out = [];
+  const re = new RegExp("\\b" + varName + "\\b", "g");
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    let j = m.index + m[0].length;
+    const keys = [];
+    let expr = varName;
+    for (;;) {
+      let k = j;
+      while (k < text.length && /\s/.test(text[k])) k++;
+      if (text[k] !== "[") break;
+      const close = d26Balanced(text, k, "[", "]");
+      if (close === -1) break;
+      keys.push(text.slice(k + 1, close));
+      expr += text.slice(j, close + 1);
+      j = close + 1;
+    }
+    if (keys.length < (minKeys || 0)) continue;
+    out.push({ expr, keys, startIdx: m.index, endIdx: j });
+  }
+  return out;
+}
+// Ekspresi `<var>[...]` tepat sebelum `.values(` (dotIdx = indeks `.`):
+// null bila basisnya bukan var ini.
+function d26ValuesBase(text, dotIdx, varName) {
+  let i = dotIdx - 1;
+  while (i >= 0 && /\s/.test(text[i])) i--;
+  if (i < 0) return null;
+  while (i >= 0 && text[i] === "]") {
+    const open = d26MatchingOpenBracket(text, i);
+    if (open === -1) return null;
+    i = open - 1;
+    while (i >= 0 && /\s/.test(text[i])) i--;
+  }
+  let j = i;
+  while (j >= 0 && /[A-Za-z0-9_$]/.test(text[j])) j--;
+  if (text.slice(j + 1, i + 1) !== varName) return null;
+  return { expr: text.slice(j + 1, dotIdx), baseStart: j + 1 };
+}
+// Apakah ekspresi (trimmed) adalah panjang-penuh set ini:
+// `<akses>.length[(...)]` — akses harus menutupi seluruh ekspresi.
+function d26ExprIsSetLength(rhs, v) {
+  const e = String(rhs).trim();
+  const m = e.match(/^(.*?)\.length\s*(?:\(\s*\))?$/);
+  if (!m) return false;
+  const base = m[1].trim();
+  const minKeys = (v.kind === "mappedSet" || v.kind === "mappedArr") ? 1 : 0;
+  const accs = d26SetAccesses(base, v.name, minKeys);
+  return accs.some((a) => a.startIdx === 0 && a.endIdx === base.length);
+}
+// Apakah ekspresi adalah panjang-penuh (set / array .values() / alias).
+function d26IsLengthExpr(expr, v, arrNames, lenAliases) {
+  const e = String(expr).trim();
+  if (lenAliases.has(e)) return true;
+  for (const a of arrNames) {
+    if (e === a + ".length") return true;
+  }
+  return d26ExprIsSetLength(e, v);
+}
+// Hapus `+ N` / `- N` di ujung ekspresi (C6: `length() + 1 <= MAX`).
+function d26StripArith(e) {
+  return String(e).trim().replace(/\s*[+\-]\s*\d+\s*$/, "");
+}
+// Apakah SATU klausa perbandingan membatasi panjang (length < bound)?
+// Arah: length di kiri dengan < / <=, atau length di kanan dengan > / >=.
+function d26ClauseCapsLength(clause, v, arrNames, lenAliases) {
+  const c = String(clause).trim();
+  const m = c.match(/^(.+?)\s*(<|<=|>|>=|==|!=)\s*(.+?)$/);
+  if (!m) return false;
+  const op = m[2];
+  const left = d26StripArith(m[1]), right = d26StripArith(m[3]);
+  const leftIsLen = d26IsLengthExpr(left, v, arrNames, lenAliases);
+  const rightIsLen = d26IsLengthExpr(right, v, arrNames, lenAliases);
+  if (leftIsLen && !rightIsLen) return op === "<" || op === "<=";
+  if (rightIsLen && !leftIsLen) return op === ">" || op === ">=";
+  return false;
+}
+// Apakah SATU klausa membuktikan panjang MELEBIHI batas (length >= bound —
+// dipakai pola `if (length >= MAX) revert`)?
+function d26ClauseExceedsLength(clause, v, arrNames, lenAliases) {
+  const c = String(clause).trim();
+  const m = c.match(/^(.+?)\s*(<|<=|>|>=|==|!=)\s*(.+?)$/);
+  if (!m) return false;
+  const op = m[2];
+  const left = d26StripArith(m[1]), right = d26StripArith(m[3]);
+  const leftIsLen = d26IsLengthExpr(left, v, arrNames, lenAliases);
+  const rightIsLen = d26IsLengthExpr(right, v, arrNames, lenAliases);
+  if (leftIsLen && !rightIsLen) return op === ">" || op === ">=";
+  if (rightIsLen && !leftIsLen) return op === "<" || op === "<=";
+  return false;
+}
+// Alias panjang lokal di badan: `x = <length-expr>` / `x = <alias>`.
+// Sekali jalan sesuai urutan sumber (dipakai cap C11 + reader L8).
+function d26LengthAliases(body, v, arrNames) {
+  const aliases = new Set();
+  const re = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*([^;]+);/g;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const rhs = m[2].trim();
+    if (aliases.has(rhs) || d26IsLengthExpr(rhs, v, arrNames, aliases)) {
+      aliases.add(m[1]);
+    }
+  }
+  return aliases;
+}
+// `if (cond)` — apakah badan-if (blok seimbang / pernyataan tunggal)
+// mengandung `revert`? (pola D25-F10, dipakai cap C3.)
+function d26IfReverts(body, condEnd) {
+  let i = condEnd;
+  while (i < body.length && /\s/.test(body[i])) i++;
+  if (body[i] === "{") {
+    const close = d26Balanced(body, i, "{", "}");
+    if (close === -1) return false;
+    return /\brevert\b/.test(body.slice(i + 1, close));
+  }
+  const semi = body.indexOf(";", i);
+  if (semi === -1) return false;
+  return /\brevert\b/.test(body.slice(i, semi + 1));
+}
+// Cap LANGSUNG di satu badan teks: require(length < MAX) /
+// require(MAX > length) / if (length >= MAX) revert (termasuk blok
+// `{ revert ...; }`) — atas panjang set ini atau aliasnya. (F2: panjang
+// HARUS milik set ini — `batch.length < 10` bukan cap.)
+function d26BodyCapsLength(body, v) {
+  const aliases = d26LengthAliases(body, v, new Set());
+  const reqRe = /\brequire\s*\(/g;
+  let m;
+  while ((m = reqRe.exec(body)) !== null) {
+    const open = m.index + m[0].length - 1;
+    const close = d26Balanced(body, open, "(", ")");
+    if (close === -1) continue;
+    const cond = body.slice(open + 1, close);
+    for (const clause of cond.split(/&&|\|\|/)) {
+      if (d26ClauseCapsLength(clause, v, new Set(), aliases)) return true;
+    }
+  }
+  const ifRe = /\bif\s*\(/g;
+  while ((m = ifRe.exec(body)) !== null) {
+    const open = m.index + m[0].length - 1;
+    const close = d26Balanced(body, open, "(", ")");
+    if (close === -1) continue;
+    const cond = body.slice(open + 1, close);
+    for (const clause of cond.split(/&&|\|\|/)) {
+      if (d26ClauseExceedsLength(clause, v, new Set(), aliases)
+        && d26IfReverts(body, close + 1)) return true;
+    }
+  }
+  return false;
+}
+// Apakah panggilan .add/.push di indeks addIdx berada di dalam blok `if`
+// yang mensyaratkan panjang < MAX (C10)? Satu pernyataan juga dihitung.
+function d26AddIsGuarded(body, addIdx, v) {
+  const aliases = d26LengthAliases(body, v, new Set());
+  const ifRe = /\bif\s*\(/g;
+  let m;
+  while ((m = ifRe.exec(body)) !== null) {
+    const open = m.index + m[0].length - 1;
+    const close = d26Balanced(body, open, "(", ")");
+    if (close === -1) continue;
+    const cond = body.slice(open + 1, close);
+    let caps = false;
+    for (const clause of cond.split(/&&|\|\|/)) {
+      if (d26ClauseCapsLength(clause, v, new Set(), aliases)) { caps = true; break; }
+    }
+    if (!caps) continue;
+    let j = close + 1;
+    while (j < body.length && /\s/.test(body[j])) j++;
+    if (body[j] === "{") {
+      const end = d26Balanced(body, j, "{", "}");
+      if (end !== -1 && addIdx > j && addIdx < end) return true;
+    } else {
+      const semi = body.indexOf(";", j);
+      if (semi !== -1 && addIdx > j && addIdx < semi) return true;
+    }
+  }
+  return false;
+}
+// Cap jumlah entri untuk satu grower: langsung di badan, ATAU di modifier
+// yang dipakai grower itu, ATAU di helper internal yang dipanggilnya
+// (satu hop — C4/C5). spanFns = fungsi-fungsi kontrak ini,
+// spanText = teks kontrak ini.
+function d26HasEntryCap(fn, spanFns, spanText, v) {
+  if (d26BodyCapsLength(fn.body, v)) return true;
+  // Modifier: cari definisi `modifier <nama> ... { ... }` di span ini.
+  const mp = modifierPart(fn);
+  const modRe = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*(?:\([^)]*\))?/g;
+  let m;
+  const seenMods = new Set();
+  while ((m = modRe.exec(mp)) !== null) {
+    const name = m[1];
+    if (seenMods.has(name)) continue;
+    seenMods.add(name);
+    if (/^(public|external|internal|private|view|pure|payable|virtual|override|returns)$/.test(name)) continue;
+    const defRe = new RegExp("\\bmodifier\\s+" + name + "\\s*\\([^)]*\\)\\s*\\{");
+    const dm = defRe.exec(spanText);
+    if (!dm) continue;
+    const open = dm.index + dm[0].length - 1;
+    const close = d26Balanced(spanText, open, "{", "}");
+    if (close === -1) continue;
+    if (d26BodyCapsLength(spanText.slice(open + 1, close), v)) return true;
+  }
+  // Helper internal satu hop: panggilan di badan grower.
+  const callRe = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*\(/g;
+  const seenHelpers = new Set();
+  while ((m = callRe.exec(fn.body)) !== null) {
+    const name = m[1];
+    if (seenHelpers.has(name) || name === fn.name) continue;
+    seenHelpers.add(name);
+    const callee = spanFns.find((f) => f.name === name);
+    if (!callee) continue;
+    if (d26BodyCapsLength(callee.body, v)) return true;
+  }
+  return false;
+}
+// Modifier yang BUKAN guard pemanggil (F11): keadaan/waktu/jenis, atau
+// validator parameter bernama *Valid* (argumennya semua parameter fungsi).
+function d26NonGuardModifierNames(fn) {
+  const params = new Set(paramNamesOf(fn).filter(Boolean));
+  const mp = modifierPart(fn);
+  const out = [];
+  const re = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*(\(([^)]*)\))?/g;
+  let m;
+  while ((m = re.exec(mp)) !== null) {
+    const name = m[1];
+    if (/^(public|external|internal|private|view|pure|payable|virtual|override|returns)$/.test(name)) continue;
+    const argStr = m[3];
+    if (/^(only)?(whenNotPaused|whenPaused|paused|unpaused|notPaused)$/i.test(name)
+      || /^only(After|Before)[A-Z]/.test(name)
+      || /^onlyEOA$/.test(name)) { out.push(name); continue; }
+    if (/^onlyValid[A-Z]/.test(name) && argStr !== undefined) {
+      const args = argStr.split(",").map((s) => s.trim()).filter(Boolean);
+      if (args.length > 0 && args.every((a) => params.has(a))) out.push(name);
+    }
+  }
+  return out;
+}
+// Guard pemanggil khusus D26: hasAccessGuard, kecuali bila satu-satunya
+// penyebabnya adalah modifier bukan-guard (F11) — modifier itu dibuang
+// dari signature lalu hasAccessGuard diuji ulang atas salinannya.
+function d26HasCallerGuard(fn) {
+  if (!hasAccessGuard(fn)) return false;
+  const excused = d26NonGuardModifierNames(fn);
+  if (!excused.length) return true;
+  let sig = fn.signature;
+  for (const name of excused) {
+    sig = sig.replace(new RegExp("\\b" + name + "\\s*(\\([^)]*\\))?", "g"), " ");
+  }
+  const probe = Object.assign({}, fn, { signature: sig.replace(/\s+/g, " ").trim() });
+  return hasAccessGuard(probe);
+}
+// Alias lokal satu langkah: `k = <param>` / `<type> k = <param>` —
+// kunci boleh memakai alias parameter (K5). Fixpoint kecil (rantai).
+function d26LocalParamAliases(fn) {
+  const params = new Set(paramNamesOf(fn).filter(Boolean));
+  const map = new Map();
+  const re = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*([A-Za-z_][A-Za-z0-9_$]*)\s*;/g;
+  let m;
+  let changed = true;
+  for (let round = 0; round < 3 && changed; round++) {
+    changed = false;
+    re.lastIndex = 0;
+    while ((m = re.exec(fn.body)) !== null) {
+      const lhs = m[1], rhs = m[2];
+      const resolved = params.has(rhs) ? rhs : (map.get(rhs) || null);
+      if (resolved && !map.has(lhs)) { map.set(lhs, resolved); changed = true; }
+    }
+  }
+  return map;
+}
+// Apakah nama var di-shadow di fungsi ini (parameter / deklarasi lokal)?
+// (F9 — parameter/lokal `holders` bukan state var.)
+function d26IsShadowed(fn, varName) {
+  if (paramNamesOf(fn).filter(Boolean).includes(varName)) return true;
+  const re = new RegExp("(?:^|[;{}])\\s*[A-Za-z_$][\\w$.]*(?:\\[\\])?\\s+(?:memory|calldata|storage)?\\s*" + varName + "\\s*(?:=|;|,)");
+  return re.test(fn.body);
+}
+// Kunci mengandung msg.sender / _msgSender() di mana pun → namespace
+// milik caller sendiri, bukan korban (F7).
+function d26KeyHasCaller(keyExpr) {
+  return /\bmsg\.sender\b/.test(keyExpr) || /_msgSender\s*\(/.test(keyExpr);
+}
+// Resolusi alias lokal atas ekspresi kunci (K5).
+function d26ResolveKeyAliases(keyExpr, aliasMap) {
+  let out = keyExpr;
+  for (const [alias, param] of aliasMap) {
+    out = out.replace(new RegExp("\\b" + alias + "\\b", "g"), param);
+  }
+  return out;
+}
+// Pertumbuhan di satu badan teks: akses set + `.add(`/`.push(` sesudahnya.
+// Mengembalikan { addIdx, keyParam } atau null. Kunci di-resolusi alias
+// lokal; kunci ber-msg.sender ditolak (F7).
+function d26GrowthInBody(body, v, minKeys, verb, params, aliasMap) {
+  for (const acc of d26SetAccesses(body, v.name, minKeys)) {
+    let j = acc.endIdx;
+    while (j < body.length && /\s/.test(body[j])) j++;
+    if (body[j] !== ".") continue;
+    const callM = body.slice(j).match(/^\.\s*(add|push)\s*\(/);
+    if (!callM || callM[1] !== verb) continue;
+    if (minKeys === 0) return { addIdx: acc.startIdx, keyParam: null };
+    const rawKey = acc.keys.join(" ");
+    const keyExpr = d26ResolveKeyAliases(rawKey, aliasMap);
+    if (d26KeyHasCaller(keyExpr)) continue;
+    const hitParam = params.find((p) => new RegExp("\\b" + p + "\\b").test(keyExpr));
+    if (!hitParam) continue;
+    return { addIdx: acc.startIdx, keyParam: hitParam };
+  }
+  return null;
+}
+// Helper yang dipanggil fn (satu hop): [{ fn: callee, args }].
+function d26CalledHelpers(fn, spanFns) {
+  const out = [];
+  const seen = new Set();
+  const re = /\b([A-Za-z_][A-Za-z0-9_$]*)\s*\(/g;
+  let m;
+  while ((m = re.exec(fn.body)) !== null) {
+    const name = m[1];
+    if (seen.has(name) || name === fn.name) continue;
+    seen.add(name);
+    const callee = spanFns.find((f) => f.name === name);
+    if (!callee || callee === fn) continue;
+    const open = m.index + m[0].length - 1;
+    const parsed = splitTopLevelArgs(fn.body, open);
+    if (!parsed) continue;
+    out.push({ fn: callee, args: parsed.args.map((a) => a.trim()) });
+  }
+  return out;
+}
+// Pertumbuhan via helper: petakan argumen pemanggil ke parameter helper
+// (substitusi nama parameter helper dengan argumennya di badan helper),
+// lalu uji seperti pertumbuhan langsung dengan parameter pemanggil.
+function d26GrowthViaHelper(callerFn, helper, v, minKeys, verb, callerParams) {
+  const calleeParams = paramNamesOf(helper.fn).filter(Boolean);
+  if (calleeParams.includes(v.name)) return null;
+  const subst = new Map();
+  calleeParams.forEach((p, i) => {
+    if (i < helper.args.length) subst.set(p, helper.args[i]);
+  });
+  let helperBody = helper.fn.body;
+  const names = [...subst.keys()].sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    helperBody = helperBody.replace(new RegExp("\\b" + name + "\\b", "g"), "(" + subst.get(name) + ")");
+  }
+  return d26GrowthInBody(helperBody, v, minKeys, verb, callerParams, new Map());
+}
+// Kaki tumbuh: external/public tanpa guard pemanggil yang menambah entri
+// ke set — langsung di badan, atau satu hop via helper internal (K10).
+// Mapped: kunci harus mengandung nama parameter (pilihan caller);
+// polos: set bersama — panggilan .add/.push apa pun sudah menggelembungkan
+// (sengaja: sybil — lihat F10).
+function d26FindGrowers(spanFns, spanText, v) {
+  const growers = [];
+  const minKeys = (v.kind === "mappedSet" || v.kind === "mappedArr") ? 1 : 0;
+  const verb = (v.kind === "mappedSet" || v.kind === "plainSet") ? "add" : "push";
+  for (const fn of spanFns) {
+    if (fn.isConstructor) continue;
+    if (!/\b(?:external|public)\b/.test(fn.signature)) continue;
+    if (d26HasCallerGuard(fn)) continue;
+    if (d26IsShadowed(fn, v.name)) continue;
+    const params = paramNamesOf(fn).filter(Boolean);
+    const aliasMap = d26LocalParamAliases(fn);
+    // (a) Pertumbuhan langsung di badan grower.
+    const direct = d26GrowthInBody(fn.body, v, minKeys, verb, params, aliasMap);
+    if (direct) {
+      if (d26HasEntryCap(fn, spanFns, spanText, v)) continue;
+      if (d26AddIsGuarded(fn.body, direct.addIdx, v)) continue;
+      growers.push({ fn, keyParam: direct.keyParam, via: null });
+      continue;
+    }
+    // (b) Delegasi satu hop ke helper internal (K10).
+    for (const helper of d26CalledHelpers(fn, spanFns)) {
+      if (d26HasCallerGuard(helper.fn)) continue;
+      const mapped = d26GrowthViaHelper(fn, helper, v, minKeys, verb, params);
+      if (!mapped) continue;
+      if (d26HasEntryCap(fn, spanFns, spanText, v)) continue;
+      growers.push({ fn, keyParam: mapped.keyParam, via: helper.fn.name });
+      break;
+    }
+  }
+  return growers;
+}
+// Apakah kondisi (tanpa &&/||) adalah perbandingan panjang-penuh:
+// satu sisi variabel loop, sisi lain ekspresi panjang.
+function d26CondIsFullLength(cond, v, arrNames, lenAliases) {
+  const c = String(cond).trim();
+  if (/&&|\|\|/.test(c)) return false;
+  const m = c.match(/^(.+?)\s*(<|<=|>|>=|==|!=)\s*(.+?)$/);
+  if (!m) return false;
+  const left = m[1].trim(), right = m[3].trim(), op = m[2];
+  const leftIsLen = d26IsLengthExpr(left, v, arrNames, lenAliases);
+  const rightIsLen = d26IsLengthExpr(right, v, arrNames, lenAliases);
+  const leftIsVar = /^[A-Za-z_][\w$]*$/.test(left);
+  const rightIsVar = /^[A-Za-z_][\w$]*$/.test(right);
+  if (leftIsVar && rightIsLen) return op === "<" || op === "<=" || op === "!=";
+  if (rightIsVar && leftIsLen) return op === ">" || op === ">=" || op === "!=";
+  return false;
+}
+// Apakah satu loop me-loop panjang penuh set ini? `for` maju/mundur,
+// kondisi terbalik, dan `while` ikut dihitung (F3).
+function d26LoopIsFullLength(lp, v, arrNames, lenAliases) {
+  if (lp.kind === "while") {
+    return d26CondIsFullLength(lp.header, v, arrNames, lenAliases);
+  }
+  const parts = lp.header.split(";");
+  if (parts.length < 2) return false;
+  if (d26CondIsFullLength(parts[1], v, arrNames, lenAliases)) return true;
+  // Loop mundur: init `i = <LEN>` + kondisi `i > 0` / `i >= 0` / `i != 0`.
+  if (/^\s*[A-Za-z_][\w$]*\s*(>|>=|!=)\s*0\s*$/.test(parts[1].trim())) {
+    const initM = parts[0].match(/=\s*(.+?)\s*$/);
+    if (initM && d26IsLengthExpr(initM[1], v, arrNames, lenAliases)) return true;
+  }
+  return false;
+}
+// Apakah badan loop punya `break` TANPA SYARAT (F4)? `break` di dalam
+// blok bersyarat / loop dalam TIDAK membatalkan (worst case tetap
+// seluruh set); `break` di level atas badan loop, atau `if (c) break;`
+// tanpa kurawal yang terakhir, ikut dihitung bersyarat.
+function d26HasUnconditionalBreak(loopBody) {
+  const re = /\bbreak\s*;/g;
+  let m;
+  while ((m = re.exec(loopBody)) !== null) {
+    let depth = 0;
+    for (let i = 0; i < m.index; i++) {
+      if (loopBody[i] === "{") depth++;
+      else if (loopBody[i] === "}") depth--;
+    }
+    if (depth >= 1) continue;
+    const before = loopBody.slice(0, m.index);
+    const stmtStart = Math.max(before.lastIndexOf(";"), before.lastIndexOf("{"),
+      before.lastIndexOf("}")) + 1;
+    const stmt = before.slice(stmtStart).trim();
+    if (/^if\s*\(.*\)\s*$/.test(stmt)) continue;
+    return true;
+  }
+  return false;
+}
+// Apakah badan loop mengerjakan tiap elemen: arr[i] / .at(i) / akses set.
+function d26LoopTouches(loopBody, v, arrNames) {
+  if (/\.at\s*\(/.test(loopBody)) return true;
+  for (const a of arrNames) {
+    if (new RegExp("\\b" + a + "\\s*\\[").test(loopBody)) return true;
+  }
+  const minKeys = (v.kind === "mappedSet" || v.kind === "mappedArr") ? 1 : 0;
+  return d26SetAccesses(loopBody, v.name, minKeys).length > 0;
+}
+// Alias yang di-CLAMP sebelum indeks loopStartIdx (F5): `if (a > N) a = ...`,
+// `a = min(a, N)`, atau ternary `a = a > N ? ... : ...`.
+function d26ClampedAliases(body, loopStartIdx, aliases) {
+  const out = new Set();
+  const prefix = body.slice(0, loopStartIdx);
+  for (const a of aliases) {
+    if (new RegExp("\\bif\\s*\\(\\s*" + a + "\\s*>[^;{]*\\)\\s*\\{?\\s*" + a + "\\s*=").test(prefix)
+      || new RegExp("\\b" + a + "\\s*=\\s*(?:[A-Za-z_$][\\w$.]*\\.)?min\\s*\\(\\s*" + a + "\\b").test(prefix)
+      || new RegExp("\\b" + a + "\\s*=\\s*" + a + "\\s*>[^?]+\\?").test(prefix)) {
+      out.add(a);
+    }
+  }
+  return out;
+}
+// Kaki baca: external/public view yang me-loop panjang penuh set itu
+// sambil mengindeks tiap elemen — atau internal view yang dipanggil view
+// public (L13; kandidat berjangkar di pemanggil public).
+function d26FindReaders(spanFns, v) {
+  const readers = [];
+  const seen = new Set();
+  function analyze(fn) {
+    if (fn.isConstructor) return null;
+    if (d26IsShadowed(fn, v.name)) return null;
+    const body = fn.body;
+    // Array lokal dari .values() atas set ini.
+    const arrNames = new Set();
+    const valRe = /\.values\s*\(/g;
+    let m;
+    while ((m = valRe.exec(body)) !== null) {
+      const base = d26ValuesBase(body, m.index, v.name);
+      if (!base) continue;
+      const before = body.slice(0, base.baseStart);
+      const assignM = before.match(/([A-Za-z_][A-Za-z0-9_$]*)\s*=\s*$/);
+      if (assignM) arrNames.add(assignM[1]);
+    }
+    const lenAliases = d26LengthAliases(body, v, arrNames);
+    for (const lp of d26Loops(body)) {
+      const clamped = d26ClampedAliases(body, lp.startIndex, lenAliases);
+      const effective = new Set([...lenAliases].filter((a) => !clamped.has(a)));
+      if (!d26LoopIsFullLength(lp, v, arrNames, effective)) continue;
+      if (d26HasUnconditionalBreak(lp.body)) continue;
+      if (!d26LoopTouches(lp.body, v, arrNames)) continue;
+      return { fn, loop: lp };
+    }
+    return null;
+  }
+  // (a) Pembaca langsung: external/public view.
+  for (const fn of spanFns) {
+    if (fn.isConstructor) continue;
+    if (!/\b(?:external|public)\b/.test(fn.signature)) continue;
+    if (!/\bview\b/.test(fn.signature)) continue;
+    if (analyze(fn)) { readers.push({ fn, via: null }); seen.add(fn.name); }
+  }
+  // (b) Pembaca internal view yang dipanggil view public (L13).
+  for (const fn of spanFns) {
+    if (fn.isConstructor) continue;
+    if (/\b(?:external|public)\b/.test(fn.signature)) continue;
+    if (!/\bview\b/.test(fn.signature)) continue;
+    if (!analyze(fn)) continue;
+    for (const caller of spanFns) {
+      if (caller.isConstructor || caller === fn) continue;
+      if (!/\b(?:external|public)\b/.test(caller.signature)) continue;
+      if (!/\bview\b/.test(caller.signature)) continue;
+      if (seen.has(caller.name)) continue;
+      if (new RegExp("\\b" + fn.name + "\\s*\\(").test(caller.body)) {
+        readers.push({ fn: caller, via: fn.name });
+        seen.add(caller.name);
+        break;
+      }
+    }
+  }
+  return readers;
+}
+function detectUnboundedLoopInflatableSet(source, fileName, idStart) {
+  // Lewati file test/mock/script seperti detektor lain (konvensi D22/D23/D25).
+  if (/(^|\/)(mocks?|test|tests?|script|scripts?)\//i.test(fileName)
+    || /\.t\.sol$/i.test(fileName)
+    || /(^|\/)Mock/i.test(fileName)) return [];
+  const clean = stripComments(source);
+  const fns = extractFunctions(clean);
+  if (fns.length < 2) return [];
+  const spans = contractSpans(clean);
+  const structSpans = findBlockSpans(clean, "struct");
+  // Variabel set/array per span (deklarasi sendiri saja).
+  const spanVars = new Map();
+  const spanByName = new Map();
+  for (const span of spans) {
+    if (span.kind === "interface") continue;
+    if (!spanByName.has(span.name)) spanByName.set(span.name, span);
+    const spanFns = fns.filter((f) =>
+      f.startIndex >= span.start && f.startIndex <= span.end);
+    const fnRanges = spanFns.map((f) => [f.startIndex, f.endIndex]);
+    const inFn = (idx) => fnRanges.some(([a, b]) => idx >= a && idx <= b);
+    const inStruct = (idx) => structSpans.some((s) => idx >= s.start && idx <= s.end);
+    const vars = [];
+    const seen = new Set();
+    for (const def of D26_SET_RE) {
+      def.re.lastIndex = 0;
+      let m;
+      while ((m = def.re.exec(clean)) !== null) {
+        const name = m[1];
+        const idx = m.index + m[0].indexOf(name);
+        if (idx < span.start || idx > span.end) continue;
+        if (inFn(idx) || inStruct(idx)) continue;
+        const key = def.kind + ":" + name;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        vars.push({ name, kind: def.kind,
+          declLine: clean.slice(0, idx).split("\n").length - 1 });
+      }
+    }
+    spanVars.set(span, vars);
+  }
+  // Closure warisan: span + semua leluhurnya (transitif) — T3.
+  function ancestorSpans(span) {
+    const out = [span];
+    const seen = new Set([span]);
+    const queue = [span];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const p of (cur.parents || [])) {
+        const ps = spanByName.get(p);
+        if (ps && !seen.has(ps)) { seen.add(ps); out.push(ps); queue.push(ps); }
+      }
+    }
+    return out;
+  }
+  const hits = [];
+  const seenCand = new Set();
+  const allVars = [];
+  for (const [span, vars] of spanVars) {
+    for (const v of vars) allVars.push({ v, declSpan: span });
+  }
+  for (const { v, declSpan } of allVars) {
+    // Span-span yang melihat var ini: span deklarasi + turunannya.
+    const visibleSpans = spans.filter((s) => s.kind !== "interface"
+      && ancestorSpans(s).includes(declSpan));
+    const growers = [];
+    const readers = [];
+    for (const s of visibleSpans) {
+      const sFns = fns.filter((f) => f.startIndex >= s.start && f.startIndex <= s.end);
+      const sText = clean.slice(s.start, s.end + 1);
+      for (const g of d26FindGrowers(sFns, sText, v)) {
+        if (!growers.some((x) => x.fn === g.fn)) growers.push({ fn: g.fn, keyParam: g.keyParam, via: g.via, span: s });
+      }
+      for (const r of d26FindReaders(sFns, v)) {
+        if (!readers.some((x) => x.fn === r.fn)) readers.push({ fn: r.fn, via: r.via, span: s });
+      }
+    }
+    if (!growers.length) continue;
+    for (const r of readers) {
+      const key = v.name + "@" + r.fn.name;
+      if (seenCand.has(key)) continue;
+      seenCand.add(key);
+      const g = growers[0];
+      const rLine = clean.slice(0, r.fn.startIndex).split("\n").length;
+      const gLine = clean.slice(0, g.fn.startIndex).split("\n").length;
+      const rSpanNote = r.span !== declSpan ? " (kontrak " + r.span.name + ")" : "";
+      const gSpanNote = g.span !== declSpan ? " (kontrak " + g.span.name + ")" : "";
+      hits.push(normalizeCandidate({
+        id: "FA-" + String(idStart + hits.length).padStart(3, "0"),
+        detector: "unbounded-loop-inflatable-set-accounting",
+        title: "Loop tak-berbatas atas set yang bisa digelembungkan permissionless",
+        location: { file: fileName, function: r.fn.name },
+        hypothesis: "`" + r.fn.name + "` (baris " + rLine + rSpanNote + ") me-loop SELURUH isi set `" + v.name
+          + "` tanpa batas/paginasi"
+          + (r.via ? " lewat helper internal `" + r.via + "`" : "")
+          + ", sementara `" + g.fn.name + "` (baris " + gLine + gSpanNote + ") menambah entri ke set itu"
+          + " TANPA kontrol akses dengan kunci pilihan caller"
+          + (g.keyParam ? " (parameter `" + g.keyParam + "`)" : "")
+          + (g.via ? " lewat helper internal `" + g.via + "`" : "")
+          + " — siapa pun bisa menggelembungkan set milik korban sampai pembacaan"
+          + " akuntansi ini kehabisan gas (OutOfGas) dan semua alur yang membacanya revert.",
+        preconditions: "Pembaca `" + r.fn.name + "` terjangkau dari jalur akuntansi (totalAssets/balanceOf"
+          + " atau sejenisnya) dan grower `" + g.fn.name + "` masih bisa dipanggil siapa pun"
+          + " (tanpa guard di kontrak lain / tanpa cap jumlah entri di luar file ini).",
+        impact: "Medium — DoS atas view akuntansi: deposit/withdraw/redeem dan semua pemeriksaan"
+          + " totalAssets sebelum/sesudah yang memanggil pembaca ini ikut revert; dana posisi"
+          + " beku sampai intervensi governance (force-out). Biaya serang = minimum deposit ×"
+          + " jumlah entri + gas (contoh nyata Somm: ±3.121 entri membrick totalAssets).",
+        severityGuess: "Medium",
+        evidence: "Grower `" + g.fn.name + "` (baris " + gLine + gSpanNote + ") tanpa kontrol akses menambah `"
+          + v.name + "`" + (g.keyParam ? " dengan kunci parameter `" + g.keyParam + "`" : "")
+          + (g.via ? " lewat helper internal `" + g.via + "`" : "")
+          + "; reader `" + r.fn.name + "` (baris " + rLine + rSpanNote + ") me-loop panjang penuh set itu"
+          + (r.via ? " lewat helper internal `" + r.via + "`" : "")
+          + " tanpa `break` tanpa syarat/paginasi; deklarasi set baris " + (v.declLine + 1) + ".",
+        toVerify: ["Cek rantai panggil: apakah `" + r.fn.name + "` dibaca dari totalAssets/balanceOf (jalur akuntansi) — bila hanya dibaca langsung user, dampaknya self-DoS",
+          "Cek biaya bloat per entri (minimum deposit + gas grower) dan ambang brick (gas/entri × block gas limit)",
+          "Cek ada cap jumlah entri / paginasi di kontrak lain atau di versi deploy",
+          "Cek jalur pemulihan pasca-brick (force-out / governance) dan apakah dana bisa keluar tanpa pembaca ini",
+          "PoC fork: bloat set sampai ambang lalu panggil `" + r.fn.name + "` + totalAssets dengan gas limit blok — harus revert OutOfGas"],
+        source: "pattern-scan",
+      }));
+    }
+  }
+  return hits;
 }
 
 function detectDeadConfigStorage(source, fileName, idStart) {
@@ -4621,10 +8699,39 @@ function applyProjectPass(candidates, files) {
 // opts sama seperti runPipeline (mis. {baseline}).
 function runProjectPipeline(files, opts) {
   const list = (files || []).filter((f) => f && typeof f.text === "string");
+  // KALIBRASI R18.4: sinyal dust dikumpulkan sekali atas seluruh korpus
+  // (+ docs bila opts.docsText ada) lalu diteruskan ke tiap runPipeline.
+  const dustSignals = collectDustSignals(list,
+    opts && opts.docsText, opts && opts.docsLabel);
+  // R19.4 (residual A17/A19): gabungan nama tipe proyek — kontrak/
+  // interface + struct dari SEMUA file korpus, supaya tipe import
+  // (mis. `IVault`/`IERC20` yang didefinisikan di file lain) dikenali
+  // D19 sebagai address-typed. Struct tetap menang atas kontrak senama
+  // (isAddressTypeName memeriksa structNames dulu) — arah fail-safe.
+  const projectContractTypeNames = new Set();
+  const projectStructNames = new Set();
+  for (const f of list) {
+    const clean = stripComments(f.text);
+    for (const s of contractSpans(clean)) {
+      if (s.kind === "contract" || s.kind === "interface") projectContractTypeNames.add(s.name);
+    }
+    for (const n of structNamesOf(clean)) projectStructNames.add(n);
+  }
+  // D22 (sesi #36, 19 Nov 2026): gabungan initializer state var proyek —
+  // fee yang dideklarasikan di file storage lain (mis. `unbondingFee` di
+  // YbEthStorage.sol) tetap terlihat D22 saat menganalisis YbEth.sol.
+  const projectStateVarInits = new Map();
+  for (const f of list) {
+    const clean = stripComments(f.text);
+    for (const [name, info] of d22StateVarInitMap(clean)) {
+      if (!projectStateVarInits.has(name)) projectStateVarInits.set(name, info);
+    }
+  }
+  const opts2 = Object.assign({}, opts, { dustSignals, projectContractTypeNames, projectStructNames, projectStateVarInits });
   const perFile = [];
   let merged = [];
   for (const f of list) {
-    const res = runPipeline(f.text, f.name, opts);
+    const res = runPipeline(f.text, f.name, opts2);
     perFile.push({ file: f.name, candidates: res.candidates.length });
     for (const c of res.candidates) merged.push(c);
   }
@@ -4674,15 +8781,37 @@ function runPipeline(source, fileName, opts) {
   // R19.2 (sesi 04:38 WIB 18 Nov 2026): nama tipe kontrak/interface +
   // struct + state var address-typed — penunjang `ident.balance` polos
   // di detektor full-balance-sweep (D19).
-  const contractTypeNames = new Set(contractSpans(cleanSource)
+  const localContractTypeNames = new Set(contractSpans(cleanSource)
     .filter((s) => s.kind === "contract" || s.kind === "interface")
     .map((s) => s.name));
+  // R19.4: gabungan nama tipe proyek (opts.projectContractTypeNames /
+  // opts.projectStructNames, dihitung runProjectPipeline) digabung ke
+  // set lokal — tipe import dikenali D19. Mode single-file (tanpa opts)
+  // tetap memakai set lokal saja (konservatif).
+  const contractTypeNames = new Set(localContractTypeNames);
+  if (opts && opts.projectContractTypeNames) {
+    for (const n of opts.projectContractTypeNames) contractTypeNames.add(n);
+  }
   const structNames = structNamesOf(cleanSource);
+  if (opts && opts.projectStructNames) {
+    for (const n of opts.projectStructNames) structNames.add(n);
+  }
   const ctx = {
     hasShareState: /\btotalShares\b/.test(cleanSource)
       || /\bmapping\s*\([^)]*\)\s*(public\s+)?shares\b/.test(cleanSource),
     comments: extractComments(source),
     commentBlocks: extractCommentBlocks(source),
+    // R-COF-1 (sesi #33, 19 Nov 2026): file interface-only — penunjang
+    // kalibrasi commented-out-function (lihat detectCommentedOutFunction).
+    // R-COF-1b (temuan Kiro F7/C9): file dengan fungsi bebas (free
+    // function) BUKAN interface-only — fungsi bebas adalah kode hidup di
+    // luar interface, jadi deklarasi yang dikomentari di file itu bukan
+    // trimming interface murni.
+    interfaceOnly: (() => {
+      const spans = contractSpans(cleanSource);
+      return spans.length > 0 && spans.every((s) => s.kind === "interface")
+        && fns.length === 0;
+    })(),
     contractTypeNames,
     structNames,
     addressStateVars: new Set(scanStateVarDecls(cleanSource)
@@ -4718,6 +8847,46 @@ function runPipeline(source, fileName, opts) {
   // Detektor level-file: state config ditulis tapi tak pernah dibaca.
   const dcHits = detectDeadConfigStorage(source, fileName, n);
   for (const h of dcHits) { found.push(h); n++; }
+  // Detektor level-file: bukti konsensus sub-daftar kosong memajukan
+  // height + stale-rejection menyensor bukti jujur (kelas K-1).
+  const esHits = detectEmptySublistProofAdvancesHeight(source, fileName, n);
+  for (const h of esHits) { found.push(h); n++; }
+  // Detektor level-file: sandwich JIT reward-accrual (kelas VENO-C2 YbEth).
+  const jitHits = detectJitRewardAccrualSandwich(source, fileName, n, opts);
+  for (const h of jitHits) { found.push(h); n++; }
+  // Detektor level-file: refund gagal-deposit terkunci di middleware tanpa
+  // jalur keluar (kelas VENO-C1 BridgeMiddleware zkCRO).
+  const refundHits = detectRefundLockedMiddleware(source, fileName, n, opts);
+  for (const h of refundHits) { found.push(h); n++; }
+  // Detektor level-file: cabang varian tidak mengonsumsi payload (kelas
+  // L-1 Hyperbridge Codec.DecodeHeader — cabang Other hanya set flag).
+  const variantHits = detectVariantBranchNoPayloadConsume(source, fileName, n);
+  for (const h of variantHits) { found.push(h); n++; }
+  // Detektor level-file: asimetri guard reentrancy antar-fungsi pembaca NAV
+  // (kelas H-SOMM-12 Somm Cellar — preview*/convert* tanpa cek locked vs
+  // totalAssets/maxWithdraw/maxRedeem yang ber-guard).
+  const navGuardHits = detectGuardAsymmetryNavReaders(source, fileName, n);
+  for (const h of navGuardHits) { found.push(h); n++; }
+  // Detektor level-file: loop tak-berbatas atas set yang bisa digelembungkan
+  // permissionless, di jalur akuntansi (kelas H-SOMM-19 Somm VestingSimple
+  // — deposit() tanpa guard menambah allUserDepositIds[receiver];
+  // vestedBalanceOf() me-loop seluruh set; totalAssets brick ±3.121 entri).
+  const inflatableHits = detectUnboundedLoopInflatableSet(source, fileName, n);
+  for (const h of inflatableHits) { found.push(h); n++; }
+  // KALIBRASI R18.4 (sesi 12:38 WIB 18 Nov 2026 — backlog dust-by-design):
+  // sinyal dust lintas-file dilewatkan runProjectPipeline via
+  // opts.dustSignals; mode single-file hanya memakai sinyal file ini +
+  // opts.docsText.
+  const dustSignals = (opts && opts.dustSignals)
+    || collectDustSignals([{ name: fileName, text: source }],
+        opts && opts.docsText, opts && opts.docsLabel);
+  // R18.4b: nama kontrak dispatcher di file ini (ternormalisasi, prefix
+  // I- dibuang) untuk ikatan sinyal eksak-nama (F13). SENGAJA memakai
+  // set LOKAL (bukan gabungan proyek R19.4) — nama kontrak file lain
+  // tidak boleh mengikat sinyal dust ke kandidat file ini.
+  const dispatcherNames = new Set([...localContractTypeNames]
+    .map((nm) => nm.replace(/^I(?=[A-Z])/, "")));
+  applyDustByDesign(found, dustSignals, fileName, dispatcherNames);
   // Urutkan: High dulu, lalu urutan deteksi.
   const rank = { High: 0, Medium: 1, Low: 2, Info: 3 };
   const sorted = [...found].sort((a, b) =>
@@ -4725,6 +8894,30 @@ function runPipeline(source, fileName, opts) {
   // Lapisan klasifikasi upstream-diff: menganotasi kandidat
   // commented-out-* dengan konteks baseline (bila opts.baseline tersedia).
   classifyUpstreamDiff(source, fileName, sorted, opts);
+  // KALIBRASI R-COF-1 (sesi #33, 19 Nov 2026 — residual hunting Veno:
+  // ISavingsDai.sol, 32 FP): kandidat commented-out-function dari file
+  // interface-only DIBUANG bila baseline tidak membuktikan fungsi itu
+  // memang ada di upstream (klasifikasi live-identical / live-divergent
+  // / live-modified). Deklarasi interface tidak pernah masuk bytecode —
+  // mengomentari deklarasi di salinan interface lokal tanpa bukti
+  // baseline hanya memangkas tampilan atas kontrak eksternal (sDAI:
+  // 32 deklarasi dikomentari, 5 live), bukan mematikan fungsionalitas.
+  // Bila baseline membuktikan fungsi itu ada di upstream (kasus Amply
+  // IPool.sol resetIsolationModeTotalDebt, live-identical vs Aave
+  // v1.19.4), kandidat DIPERTAHANKAN sebagai anggota klaster.
+  // Klasifikasi `absent` (fungsi tak pernah ada di upstream) dan
+  // tanpa-baseline ikut dibuang.
+  // KALIBRASI R-COF-1b (temuan Kiro F7): kandidat yang dikomentari
+  // DENGAN badan (`commentedHasBody`) DIPERTAHANKAN tanpa baseline —
+  // interface tidak bisa punya badan, jadi ini kode implementasi yang
+  // dimatikan, bukan trimming interface.
+  const kept = sorted.filter((c) => {
+    if (c.detector !== "commented-out-function" || !ctx.interfaceOnly) return true;
+    if (c.commentedHasBody) return true;
+    const cls = c.upstream && c.upstream.classification;
+    return cls === "live-identical" || cls === "live-divergent"
+      || cls === "live-modified";
+  });
   // Info baseline untuk laporan (bila ada): jumlah file baseline yang
   // dipakai pass ini — UI menampilkannya di penutup laporan.
   const baselineInfo = (opts && opts.baseline)
@@ -4732,7 +8925,7 @@ function runPipeline(source, fileName, opts) {
         ? opts.baseline.size : Object.keys(opts.baseline).length }
     : null;
   return {
-    candidates: sorted,
+    candidates: kept,
     baseline: baselineInfo,
     mappedAreas: [
       "reentrancy call-sebelum-update",
@@ -4741,13 +8934,13 @@ function runPipeline(source, fileName, opts) {
       "ecrecover tanpa cek address(0)",
       "tx.origin untuk otorisasi",
       "unchecked external call",
-      "eksekutor arbitrary-call tanpa kontrol akses / permissionless-dispatcher (baru 17 Nov; Medium — kelas H3 Hyperbridge CallDispatcher.dispatch; kalibrasi R18.1: receiver terindeks, sink assembly, onlyGateway/if-revert; kalibrasi F10 18 Nov: one-hop forwarder external -> dispatcher internal, posisi argumen target/data; F10.1: data selector-pinned bukan aliran caller; R18.3: data kosong `new bytes(0)`/`abi.encode()` dikecualikan)",
+      "eksekutor arbitrary-call tanpa kontrol akses / permissionless-dispatcher (baru 17 Nov; Medium — kelas H3 Hyperbridge CallDispatcher.dispatch; kalibrasi R18.1: receiver terindeks, sink assembly, onlyGateway/if-revert; kalibrasi F10 18 Nov: one-hop forwarder external -> dispatcher internal, posisi argumen target/data; F10.1: data selector-pinned bukan aliran caller; R18.3: data kosong `new bytes(0)`/`abi.encode()` dikecualikan; R18.4: dust-by-design terdokumentasi di kode/docs → Medium diturunkan ke Low; R18.4b: prosa hanya dari komentar per kalimat, negasi ditolak, ikatan per sinyal nama-eksak, aturan dua-sumber)",
       "sweep escrow memakai saldo penuh kontrak perantara / full-balance-sweep (baru 17 Nov; Low — kelas H3b Hyperbridge IntentGatewayV2.placeOrder; kalibrasi R19.1: posisi argumen paren-seimbang, assignment terakhir; R19.2: `ident.balance` polos bila ident address-typed)",
-      "kirim ETH tanpa kontrol akses ke target pilihan caller / permissionless-value-send (baru 17 Nov; Medium — rekomendasi F8 review Kiro detektor 18/19)",
+      "kirim ETH tanpa kontrol akses ke target pilihan caller / permissionless-value-send (baru 17 Nov; Medium — rekomendasi F8 review Kiro detektor 18/19; kalibrasi R20.2 19 Nov: unwrap payable + payout entitlement; R20.2c: F1 jumlah terikat, F2 nama bukan-param, F3 bentuk cek diperlebar, F4 posisi sebelum kirim, F5 bentuk bersarang satu level)",
       "replay signature tanpa nonce/domain separator (baru 14 Nov)",
       "akuntansi share tak berkurang saat withdraw (baru 14 Nov)",
       "cek keamanan dikomentari / commented-out-check (baru 14 Nov)",
-      "fungsi utuh dikomentari / commented-out-function (baru 14 Nov)",
+      "fungsi utuh dikomentari / commented-out-function (baru 14 Nov; kalibrasi R-COF-1 19 Nov: file interface-only dibuang tanpa bukti baseline; R-COF-1b: badan dikomentari dipertahankan, file ber-free-function bukan interface-only)",
       "upstream-diff: klasifikasi commented-out vs baseline fork (baru 14 Nov; aktif bila baseline tersedia)",
       "pergeseran semantik enum vs baseline / enum-semantic-shift (baru 14 Nov; aktif bila baseline tersedia)",
       "harga oracle tanpa cek staleness / oracle-passthrough (baru 14 Nov; klasifikasi by-design vs kandidat via baseline; kalibrasi review Kiro 15 Nov: getPriceUnsafe/getUnderlyingPrice/getRoundData, guard kurung/variabel-age, tanpa answeredInRound/isBorrowAllowed)",
@@ -4755,6 +8948,12 @@ function runPipeline(source, fileName, opts) {
       "receive()/fallback() payable tanpa jalur keluar ETH / eth-locked-receive (baru 15 Nov; Info, naik Low bila IWETH.withdraw/refund=address(this); kalibrasi review Kiro Opus 5.5 15 Nov: {value:} umum, cast bersarang, immutable/array, safeTransferETH, proxy delegatecall ditekan, deklarasi tanpa badan tidak ter-flag, path test/mock dilewati)",
       "cek identitas msg.sender yang vacuous di fungsi handler-only / vacuous-identity-check (baru 15 Nov; Medium — kelas FUL-REF-01 Fulcrom ReferralManager: onlyRole(HANDLER_ROLE) + `affiliate == msg.sender`)",
       "state config ditulis tapi tak pernah dibaca / dead-config-storage (baru 15 Nov; Low — kelas R-02 Fulcrom VaultPriceFeedV2: favorPrimaryPrice + spreadThresholdBasisPoints; klasifikasi upstream-diff: live-divergent bila upstream membaca var ini)",
+      "bukti konsensus sub-daftar kosong memajukan height + stale-rejection menyensor bukti jujur / empty-sublist-proof-advances-height (baru 18 Nov; Low — kelas K-1 Hyperbridge EcdsaBeefy: `if (len > 0)` lewati verifikasi bila parachains kosong, `latestHeight` tetap maju, proof jujur blok sama ditolak stale)",
+      "sandwich JIT reward-accrual / jit-reward-accrual-sandwich (baru 19 Nov; Medium bila fee keluar default-0/tidak ada, Low bila fee nonzero/tak diketahui — kelas VENO-C2 YbEth: `accrueReward` menambah `totalPooledEth` tanpa mint share, `stake` mint pada rate pra-accrual, `requestUnbond` mengunci rate pasca-accrual lalu membakar share; jadwal accrual + fee live = toVerify)",
+      "refund gagal-deposit terkunci di middleware / refund-locked-middleware (baru 19 Nov; Medium — kelas VENO-C1 BridgeMiddleware zkCRO: deposit diteruskan ke bridge lewat `requestL2TransactionTwoBridges` sehingga kontrak tercatat deposit sender; tanpa rescue ERC20 arbitrer + tanpa receive()/fallback() — refund ERC20 terkunci di middleware, refund ETH revert di bridge; semantik refund bridge live + saldo live + rescue di kontrak induk = toVerify)",
+      "cabang varian parser tidak mengonsumsi payload / variant-branch-no-payload-consume (baru 20 Nov, kalibrasi R24 sesi #42; Info — kelas L-1 Hyperbridge Codec.DecodeHeader: cabang Other hanya menandai flag tanpa membaca payload Vec<u8>, offset desync untuk item berikutnya; varian unit tanpa payload sengaja tidak di-flag; format wire varian = toVerify)",
+      "asimetri guard reentrancy antar-fungsi pembaca NAV / guard-asymmetry-nav-readers (baru 22 Nov; Low — kelas H-SOMM-12 Somm Cellar: preview*/convert* membaca NAV tanpa cek locked sementara totalAssets/maxWithdraw/maxRedeem ber-guard; kalibrasi R25 sesi #56: propagasi guard lewat closure, guard via helper/modifier, bentuk guard uint/getter/member)",
+      "loop tak-berbatas atas set yang bisa digelembungkan permissionless / unbounded-loop-inflatable-set-accounting (baru 23 Nov; Medium — kelas H-SOMM-19 Somm VestingSimple: deposit() tanpa guard menambah allUserDepositIds[receiver] dengan receiver bebas, vestedBalanceOf() me-loop seluruh set; PoC fork: brick totalAssets pada ±3.121 entri, ±9.846 gas/entri; kalibrasi R26 sesi #59 atas review Kiro: cap diperlebar, loop while/mundur/terbalik, break bersyarat, guard khusus D26, warisan satu file; F10 sybil disengaja)",
     ],
     unmappedAreas: [
       "accounting mendalam di luar share-withdraw",
@@ -4762,7 +8961,7 @@ function runPipeline(source, fileName, opts) {
       "review Kiro agent crew (jalur terpisah, bukan pipeline)",
       "Slither (dijalankan terpisah, hasil dinormalisasi via normalizeSlither)",
     ],
-    topHypotheses: sorted.slice(0, 3),
+    topHypotheses: kept.slice(0, 3),
   };
 }
 
@@ -4826,7 +9025,15 @@ if (typeof module !== "undefined" && module.exports) {
     extractCommentBlocks, listCommentedOutFunctions, classifyUpstreamDiff,
     extractEnums, detectEnumSemanticShift, hasStalenessGuard,
     detectEthLockedReceive, detectDeadConfigStorage, findDeadConfigVars,
+    detectEmptySublistProofAdvancesHeight,
+    detectJitRewardAccrualSandwich,
+    detectRefundLockedMiddleware,
+    detectVariantBranchNoPayloadConsume,
+    detectGuardAsymmetryNavReaders,
+    detectUnboundedLoopInflatableSet,
     buildBaselineMap, runProjectPipeline, applyProjectPass, findCrossFileReads,
     findDispatcherSink, detectOneHopDispatcher, paramNamesOf,
+    collectDustSignals, findDustSignalsInText, applyDustByDesign, dustSignalTied,
   };
 }
+

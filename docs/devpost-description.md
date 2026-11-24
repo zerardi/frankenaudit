@@ -1,4 +1,4 @@
-# FrankenAudit — Devpost description (DRAF, sesi 04:38 WIB 14 Nov 2026)
+# FrankenAudit — Devpost description (DRAF, diperbarui sesi #57, 23 Nov 2026)
 
 > Draf untuk diisi ke draf Devpost 1298511 (M5). Bahasa Inggris (bahasa juri).
 > Status: DRAF — belum diisi ke Devpost, belum disubmit. Finalisasi + pengisian
@@ -27,17 +27,33 @@ verification checklist for a human referee.
 
 It is stitched ("Frankenstein") from three parts:
 
-1. **Static analysis** — Slither plus 9 hand-built pattern detectors
-   (reentrancy, missing access control, division without zero guard,
+1. **Static analysis** — Slither plus 26 hand-built pattern detectors:
+   reentrancy, missing access control, division without zero guard,
    ecrecover without zero check, tx.origin auth, unchecked call, replay
-   signature, share accounting, commented-out check).
+   signature, share accounting, commented-out check, commented-out
+   function, upstream diff vs fork baselines, enum semantic shift,
+   oracle passthrough without staleness check, free-memory-pointer
+   without 32-byte rounding, eth-locked receive, vacuous identity
+   check, dead config storage, permissionless dispatcher (plus one-hop
+   forwarder), full-balance sweep, permissionless value send,
+   empty-sublist proof advancing height, JIT reward-accrual sandwich,
+   refund-locked middleware, variant branch without payload consume,
+   guard-asymmetry nav readers, and unbounded-loop inflatable-set
+   accounting.
 2. **Kiro agent crew** — Kiro agents running under a planted bug-bounty
    persona (`.kiro/steering/bug-bounty.md`) read the same code from
    different angles and cross-review each other before a candidate
-   reaches the report.
+   reaches the report. Every crew claim is re-verified by a human
+   referee against the real code before it becomes a calibration.
 3. **Read-only on-chain lookup** — the app reads live deployment state
    (`eth_getCode` and state reads) to falsify candidates that exist
    "in code" but are dead "in deployment". No transactions, no wallet.
+
+On top of the pipeline sits an **Intake & Gate** stage: candidate
+bounty programs are scored (public scope, payout structure, freshness,
+detector fit, competition, responsiveness, novelty) and gated
+(LAYAK / KONFIRMASI / TOLAK) before any hunting run starts, so the
+tool hunts where a beginner can actually submit.
 
 **Why it matters**
 
@@ -50,12 +66,17 @@ it in a browser.
 
 **What we proved while building it (dogfooding)**
 
-- A curated trap contract with 13 planted bugs: the pipeline finds all
-  13, with 18/18 automated tests passing.
-- Live hunting runs as product testing: Amply on Cronos zkEVM (83 files)
-  and RAAC Core Contracts (44 files, Guardian contest). The newest
-  detector (commented-out check) reproduced a real finding class the
-  Kiro crew had found by hand — a commented-out siloed-borrowing guard.
+- A curated trap contract with 30 planted bugs: the pipeline finds all
+  30, with 977/977 automated tests passing.
+- Live hunting runs as product testing across 11 real surfaces
+  (Fulcrom, Amply, RAAC, Hyperbridge, Flow, Veno on Ethereum and
+  Cronos zkEVM, LCROBridge, Resupply, EFP, Somm): the pipeline reproduces real finding classes the Kiro
+  crew had found by hand — commented-out guards, enum shifts,
+  oracle passthrough, eth-locked receive, permissionless dispatchers,
+  empty-sublist consensus proofs, JIT reward-accrual sandwiching,
+  refund-locked bridge middleware, unconsumed variant payloads, and
+  guard asymmetry between NAV-reading functions. Recall against the crew's Amply
+  candidates rose from 0/7 to 4/7 as detectors were added.
 - Four fork-level PoCs (Foundry) confirm the pipeline's top candidates
   end-to-end, including a drain via missing access control and a
   signature-replay mint.
@@ -66,10 +87,11 @@ See `kiro-usage-writeup.md` (write-up pemakaian Kiro) in this repo.
 
 **What's next**
 
-- Public repo + live demo URL (pending owner approval to push).
-- More detectors (commented-out functions, upstream diff vs fork
-  baselines) and a Kiro-crew review pass inside the app itself.
-- Video demo < 3 min: see `video-script.md`.
+- Code freeze 24 Nov 2026; public repo + live demo URL 25 Nov 2026
+  (pending owner approval to flip the repo public).
+- Video demo < 3 min: see `video-script.md` (voice-over recorded;
+  screen capture awaits the live URL).
+- Submit target 27 Nov 2026 (final click needs owner approval).
 
 ## Inspiration (draf, 1–2 kalimat)
 
@@ -85,6 +107,9 @@ inside a tool a beginner can actually run.
   proves a finding.
 - Most "findings" die on live state — that is why the on-chain lookup
   exists.
+- A detector is only as good as its referee: every Kiro crew verdict
+  is attacked before it is adopted, and several "proven" claims turned
+  out to be stub artifacts.
 
 ## Challenges (draf)
 
@@ -94,13 +119,16 @@ inside a tool a beginner can actually run.
   flagged a division bug that did not exist).
 - Keeping the Kiro crew's verdicts honest: every crew claim is
   re-checked by a human referee before it becomes a candidate.
+- Cross-file reasoning (dead config read in another file, wrappers,
+  chained import aliases) needed a project-level pass on top of
+  per-file detectors.
 
 ## How to run (draf)
 
 Static app — open `index.html` or serve the `app/` folder. Tests:
-`node tests/run-m2-tests.js` (18/18). Slither cross-check needs
+`node tests/run-m2-tests.js` (977/977). Slither cross-check needs
 `slither-analyzer` + `solc` (see `docs/slither-crosscheck-2026-11-13.md`).
 
 ## License
 
-MIT. Repo publik (pending push): `zerardi/frankenaudit`.
+MIT. Repo publik (pending flip 25 Nov 2026): `zerardi/frankenaudit`.

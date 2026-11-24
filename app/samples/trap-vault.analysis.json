@@ -1,260 +1,321 @@
 {
-  "curatedBy": "jack (manual, 2026-11-13)",
-  "expectedCandidates": [
-    {
-      "detector": "reentrancy-call-before-update",
-      "function": "withdraw",
-      "severityGuess": "High",
-      "why": "msg.sender.call{value} di baris 41, balances[msg.sender] -= amount baru di baris 43 — kontrak penerima bisa re-enter sebelum saldo berkurang."
-    },
-    {
-      "detector": "missing-access-control",
-      "function": "setOwner",
-      "severityGuess": "High",
-      "why": "Menulis state sensitif owner tanpa modifier onlyOwner dan tanpa require(msg.sender == owner) — siapa pun bisa merebut kepemilikan."
-    },
-    {
-      "detector": "division-no-guard",
-      "function": "sharePrice",
-      "severityGuess": "Medium",
-      "why": "address(this).balance / totalShares tanpa require(totalShares > 0) — revert saat vault kosong, harga share tidak terdefinisi."
-    },
-    {
-      "detector": "ecrecover-no-zero-check",
-      "function": "claimWithSignature",
-      "severityGuess": "Medium",
-      "why": "Hasil ecrecover dipakai tanpa cek signer != address(0) — signature invalid menghasilkan address(0)."
-    },
-    {
-      "detector": "tx-origin-auth",
-      "function": "emergencyDrain",
-      "severityGuess": "High",
-      "why": "require(tx.origin == owner) — otorisasi lewat tx.origin, bisa dipancing lewat kontrak perantara/phishing."
-    },
-    {
-      "detector": "unchecked-call",
-      "function": "payFee",
-      "severityGuess": "Medium",
-      "why": "to.call{value: amount}(\"\") hasilnya diabaikan, lalu feeBps di-nol-kan seolah transfer berhasil."
-    },
-    {
-      "detector": "missing-access-control",
-      "function": "payFee",
-      "severityGuess": "High",
-      "why": "Menulis state sensitif feeBps + mengirim ETH ke alamat arbitrer tanpa modifier/require akses — siapa pun bisa memanggilnya."
-    },
-    {
-      "detector": "replay-signature",
-      "function": "claimWithSignature",
-      "severityGuess": "High",
-      "why": "Digest hanya (msg.sender, amount) tanpa nonce/chainId/address(this) — satu signature sah owner bisa dipakai ulang tanpa batas (temuan Kiro B)."
-    },
-    {
-      "detector": "replay-signature",
-      "function": "claimWithSignatureSafe",
-      "severityGuess": "High",
-      "why": "Cek zero-signer memperbaiki bug 4, tapi digest tetap tanpa nonce — replay tetap bisa (temuan Kiro B)."
-    },
-    {
-      "detector": "replay-signature",
-      "function": "permitRegexControl",
-      "severityGuess": "High",
-      "why": "Digest (owner, spender, value, deadline) tanpa nonce/chainId — signature self-signed bisa di-replay; plus mint arbitrer (temuan Kiro A/B)."
-    },
-    {
-      "detector": "share-accounting",
-      "function": "withdraw",
-      "severityGuess": "Low",
-      "why": "balances dikurangi, tapi shares/totalShares tidak — akuntansi share tidak sinkron (temuan Kiro C)."
-    },
-    {
-      "detector": "share-accounting",
-      "function": "withdrawSafe",
-      "severityGuess": "Low",
-      "why": "CEI benar, tapi shares/totalShares tetap tidak dikurangi saat penarikan (temuan Kiro C)."
-    },
-    {
-      "detector": "commented-out-check",
-      "function": "drainCommentedCheck",
-      "severityGuess": "Medium",
-      "why": "require(balances[msg.sender] >= amount) dikomentari di dalam fungsi — cek saldo dimatikan, penarikan tanpa saldo lolos dari validasi (kelas AMP-01 Amply)."
-    },
-    {
-      "detector": "commented-out-function",
-      "function": "setFeePaused",
-      "severityGuess": "Medium",
-      "why": "Fungsi setFeePaused dikomentari utuh — tidak ada jalur yang bisa mengubah feeBps (kelas AMP-02 Amply, setDebtCeiling dikomentari utuh)."
-    },
-    {
-      "detector": "oracle-passthrough-no-staleness",
-      "function": "getVaultPrice",
-      "severityGuess": "Low",
-      "why": "latestAnswer() dipakai apa adanya; hanya cek price > 0 (bukan staleness) — bila feed macet, harga basi tetap dipakai (kelas AMP-06 Amply; bentuk persis AaveOracle upstream)."
-    },
-    {
-      "detector": "oracle-passthrough-no-staleness",
-      "function": "collateralValue",
-      "severityGuess": "Low",
-      "why": "IPriceOracleGetter.getAssetPrice dipakai langsung untuk valuasi agunan tanpa cek umur harga (bentuk AMP-06 di sisi konsumen — ValidationLogic.validateBorrow Amply)."
-    },
-    {
-      "detector": "vacuous-identity-check",
-      "function": "setTraderReferralCode",
-      "severityGuess": "Medium",
-      "why": "onlyHandler (pemanggil = router, bukan trader) tapi memeriksa `affiliate == msg.sender` seolah msg.sender adalah trader — cek vacuous, self-referral lolos (kelas FUL-REF-01 Fulcrom ReferralManager, sesi BB sore 15 Nov 2026)."
-    },
-    {
-      "detector": "dead-config-storage",
-      "function": "payFee",
-      "severityGuess": "Low",
-      "why": "feeBps ditulis di payFee (feeBps = 0) + setFeeCommentProse (feeBps = bps) tapi tidak pernah dibaca — vault tidak pernah memakai fee; dead config yang sudah ada di fixture sejak awal, baru tertangkap detektor ke-17."
-    },
-    {
-      "detector": "dead-config-storage",
-      "function": "setDeadSwitch",
-      "severityGuess": "Low",
-      "why": "configDead ditulis di setter tapi tidak pernah dibaca — governance mengira config berlaku padahal tidak ada logika yang memakainya (kelas R-02 Fulcrom VaultPriceFeedV2 favorPrimaryPrice, sesi BB sore 15 Nov 2026)."
-    },
-    {
-      "detector": "dead-config-storage",
-      "function": "setDeadThreshold",
-      "severityGuess": "Low",
-      "why": "thresholdDead ditulis di setter tapi tidak pernah dibaca — bentuk kedua kelas R-02 (Fulcrom spreadThresholdBasisPoints)."
-    },
-    {
-      "detector": "permissionless-dispatcher",
-      "function": "dispatch",
-      "severityGuess": "Medium",
-      "why": "dispatch(bytes) external tanpa guard mengeksekusi to.call{value: call.value}(call.data) dengan target+data dari calldata yang di-decode — kelas H3 Hyperbridge CallDispatcher.dispatch (sesi BB sore 17 Nov 2026, wasit Medium, PoC-verified Foundry 4/4)."
-    },
-    {
-      "detector": "full-balance-sweep",
-      "function": "sweepEscrow",
-      "severityGuess": "Low",
-      "why": "uint256 balance = IERC20(token).balanceOf(dispatcher) lalu transfer(address(this), balance) — sweep sebesar saldo penuh kontrak perantara, bukan jumlah deklarasi — kelas H3b Hyperbridge IntentGatewayV2.placeOrder (sesi BB sore 17 Nov 2026, wasit Low)."
-    },
-    {
-      "detector": "permissionless-value-send",
-      "function": "drainValue",
-      "severityGuess": "Medium",
-      "why": "drainValue(to, amount) external tanpa guard: (bool ok,) = to.call{value: amount}(\"\") dengan return dicek — lolos unchecked-call (return ditangkap) dan permissionless-dispatcher (data kosong); kelas F8 review Kiro 17 Nov 2026."
-    },
-    {
-      "detector": "permissionless-value-send",
-      "function": "payFee",
-      "severityGuess": "Medium",
-      "why": "payFee(to, amount) external tanpa guard: to.call{value: amount}(\"\") ke alamat pilihan caller — drain ETH yang sama seperti BUG 21 (sudah ter-flag missing-access-control + unchecked-call)."
-    }
-  ],
-  "expectedTotal": 24,
-  "file": "trap-vault.sol",
-  "negativeControls": [
-    {
-      "function": "withdrawSafe",
-      "pattern": "reentrancy-call-before-update",
-      "why": "Checks-effects-interactions benar: balances dikurangi SEBELUM external call."
-    },
-    {
-      "function": "sharePriceSafe",
-      "pattern": "division-no-guard",
-      "why": "require(totalShares > 0) sebelum pembagian."
-    },
-    {
-      "function": "claimWithSignatureSafe",
-      "pattern": "ecrecover-no-zero-check",
-      "why": "require(signer != address(0)) sebelum signer dipakai."
-    },
-    {
-      "function": "permitRegexControl",
-      "pattern": "missing-access-control",
-      "why": "KONTROL REGRESI SAJA, bukan pola aman: owner adalah parameter + perbandingan ==, bukan penulisan state (regresi AToken.permit Amply 2026-11-13). Fungsi ini sendiri TIDAK aman — self-signed mint tanpa nonce (temuan Kiro Opus 5.5, Critical)."
-    },
-    {
-      "function": "claimWithNonceSafe",
-      "pattern": "replay-signature",
-      "why": "Digest mengikat nonce sekali-pakai + chainId + address(this); nonce ditandai terpakai."
-    },
-    {
-      "function": "claimWithNonceSafe",
-      "pattern": "ecrecover-no-zero-check",
-      "why": "require(signer != address(0)) sebelum signer dipakai."
-    },
-    {
-      "function": "withdrawFull",
-      "pattern": "share-accounting",
-      "why": "Mengurangi balances + shares + totalShares sebelum external call."
-    },
-    {
-      "function": "withdrawFull",
-      "pattern": "reentrancy-call-before-update",
-      "why": "Checks-effects-interactions benar: semua state dikurangi SEBELUM external call."
-    },
-    {
-      "function": "setFeeCommentProse",
-      "pattern": "commented-out-check",
-      "why": "Komentar prosa menyebut 'require' tanpa kurung + baris kode non-check yang dikomentari — bukan cek yang dimatikan."
-    },
-    {
-      "function": "setFeeActive",
-      "pattern": "commented-out-function",
-      "why": "Komentar prosa yang menyebut signature (lihat function setFeeActive(uint256) untuk ...) — bukan definisi fungsi yang dikomentari."
-    },
-    {
-      "function": "getVaultPriceSafe",
-      "pattern": "oracle-passthrough-no-staleness",
-      "why": "require(block.timestamp - updatedAt < 3600) sebelum harga dipakai — umur data dicek."
-    },
-    {
-      "function": "setTraderReferralCodeByUser",
-      "pattern": "vacuous-identity-check",
-      "why": "Jalur pemanggilan langsung oleh trader — cek `affiliate != msg.sender` bermakna karena msg.sender memang trader (bentuk Fulcrom ReferralManager.setTraderReferralCodeByUser)."
-    },
-    {
-      "function": "setLiveCounter",
-      "pattern": "dead-config-storage",
-      "why": "liveCounter ditulis di setter DAN dibaca di getLiveCounter — config hidup, bukan dead config."
-    },
-    {
-      "function": "dispatchGuarded",
-      "pattern": "permissionless-dispatcher",
-      "why": "Dispatcher yang sama tapi ber-modifier onlyHandler — hanya gateway yang boleh memanggil."
-    },
-    {
-      "function": "payFee",
-      "pattern": "permissionless-dispatcher",
-      "why": "to.call{value: amount}(\"\") — data kosong, hanya kirim ETH, bukan arbitrary call (cakupan v1 detektor)."
-    },
-    {
-      "function": "sweepDeclared",
-      "pattern": "full-balance-sweep",
-      "why": "Transfer memakai jumlah yang dideklarasikan (parameter amount), bukan saldo penuh perantara."
-    },
-    {
-      "function": "rescueOwnBalance",
-      "pattern": "full-balance-sweep",
-      "why": "Sweep saldo SENDIRI (balanceOf(address(this))) ke owner — rescue by-design, dikecualikan."
-    },
-    {
-      "function": "withdrawSelf",
-      "pattern": "permissionless-value-send",
-      "why": "Kirim ETH ke msg.sender sendiri (withdraw) — penerima dikecualikan."
-    },
-    {
-      "function": "withdrawToOwner",
-      "pattern": "permissionless-value-send",
-      "why": "Kirim ETH ke owner (payout sah) — penerima dikecualikan."
-    },
-    {
-      "function": "payToken",
-      "pattern": "permissionless-value-send",
-      "why": "Transfer TOKEN dua argumen (to, amount) — bukan kirim ETH satu argumen."
-    },
-    {
-      "function": "dispatch",
-      "pattern": "permissionless-value-send",
-      "why": "dispatch punya data arbitrer (call.data) — ranah permissionless-dispatcher, bukan value-send."
-    }
-  ],
-  "note": "Ground truth manusia untuk pengujian pipeline M2. Kandidat di sini adalah yang DIHARAPKAN dari pipeline (detector, fungsi). Severity = tebakan awal, bukan verdict — verdict butuh PoC fork oleh wasit.",
-  "sample": "TrapVault"
+ "curatedBy": "jack (manual, 2026-11-13)",
+ "expectedCandidates": [
+  {
+   "detector": "reentrancy-call-before-update",
+   "function": "withdraw",
+   "severityGuess": "High",
+   "why": "msg.sender.call{value} di baris 41, balances[msg.sender] -= amount baru di baris 43 — kontrak penerima bisa re-enter sebelum saldo berkurang."
+  },
+  {
+   "detector": "missing-access-control",
+   "function": "setOwner",
+   "severityGuess": "High",
+   "why": "Menulis state sensitif owner tanpa modifier onlyOwner dan tanpa require(msg.sender == owner) — siapa pun bisa merebut kepemilikan."
+  },
+  {
+   "detector": "division-no-guard",
+   "function": "sharePrice",
+   "severityGuess": "Medium",
+   "why": "address(this).balance / totalShares tanpa require(totalShares > 0) — revert saat vault kosong, harga share tidak terdefinisi."
+  },
+  {
+   "detector": "ecrecover-no-zero-check",
+   "function": "claimWithSignature",
+   "severityGuess": "Medium",
+   "why": "Hasil ecrecover dipakai tanpa cek signer != address(0) — signature invalid menghasilkan address(0)."
+  },
+  {
+   "detector": "tx-origin-auth",
+   "function": "emergencyDrain",
+   "severityGuess": "High",
+   "why": "require(tx.origin == owner) — otorisasi lewat tx.origin, bisa dipancing lewat kontrak perantara/phishing."
+  },
+  {
+   "detector": "unchecked-call",
+   "function": "payFee",
+   "severityGuess": "Medium",
+   "why": "to.call{value: amount}(\"\") hasilnya diabaikan, lalu feeBps di-nol-kan seolah transfer berhasil."
+  },
+  {
+   "detector": "missing-access-control",
+   "function": "payFee",
+   "severityGuess": "High",
+   "why": "Menulis state sensitif feeBps + mengirim ETH ke alamat arbitrer tanpa modifier/require akses — siapa pun bisa memanggilnya."
+  },
+  {
+   "detector": "replay-signature",
+   "function": "claimWithSignature",
+   "severityGuess": "High",
+   "why": "Digest hanya (msg.sender, amount) tanpa nonce/chainId/address(this) — satu signature sah owner bisa dipakai ulang tanpa batas (temuan Kiro B)."
+  },
+  {
+   "detector": "replay-signature",
+   "function": "claimWithSignatureSafe",
+   "severityGuess": "High",
+   "why": "Cek zero-signer memperbaiki bug 4, tapi digest tetap tanpa nonce — replay tetap bisa (temuan Kiro B)."
+  },
+  {
+   "detector": "replay-signature",
+   "function": "permitRegexControl",
+   "severityGuess": "High",
+   "why": "Digest (owner, spender, value, deadline) tanpa nonce/chainId — signature self-signed bisa di-replay; plus mint arbitrer (temuan Kiro A/B)."
+  },
+  {
+   "detector": "share-accounting",
+   "function": "withdraw",
+   "severityGuess": "Low",
+   "why": "balances dikurangi, tapi shares/totalShares tidak — akuntansi share tidak sinkron (temuan Kiro C)."
+  },
+  {
+   "detector": "share-accounting",
+   "function": "withdrawSafe",
+   "severityGuess": "Low",
+   "why": "CEI benar, tapi shares/totalShares tetap tidak dikurangi saat penarikan (temuan Kiro C)."
+  },
+  {
+   "detector": "commented-out-check",
+   "function": "drainCommentedCheck",
+   "severityGuess": "Medium",
+   "why": "require(balances[msg.sender] >= amount) dikomentari di dalam fungsi — cek saldo dimatikan, penarikan tanpa saldo lolos dari validasi (kelas AMP-01 Amply)."
+  },
+  {
+   "detector": "commented-out-function",
+   "function": "setFeePaused",
+   "severityGuess": "Medium",
+   "why": "Fungsi setFeePaused dikomentari utuh — tidak ada jalur yang bisa mengubah feeBps (kelas AMP-02 Amply, setDebtCeiling dikomentari utuh)."
+  },
+  {
+   "detector": "oracle-passthrough-no-staleness",
+   "function": "getVaultPrice",
+   "severityGuess": "Low",
+   "why": "latestAnswer() dipakai apa adanya; hanya cek price > 0 (bukan staleness) — bila feed macet, harga basi tetap dipakai (kelas AMP-06 Amply; bentuk persis AaveOracle upstream)."
+  },
+  {
+   "detector": "oracle-passthrough-no-staleness",
+   "function": "collateralValue",
+   "severityGuess": "Low",
+   "why": "IPriceOracleGetter.getAssetPrice dipakai langsung untuk valuasi agunan tanpa cek umur harga (bentuk AMP-06 di sisi konsumen — ValidationLogic.validateBorrow Amply)."
+  },
+  {
+   "detector": "vacuous-identity-check",
+   "function": "setTraderReferralCode",
+   "severityGuess": "Medium",
+   "why": "onlyHandler (pemanggil = router, bukan trader) tapi memeriksa `affiliate == msg.sender` seolah msg.sender adalah trader — cek vacuous, self-referral lolos (kelas FUL-REF-01 Fulcrom ReferralManager, sesi BB sore 15 Nov 2026)."
+  },
+  {
+   "detector": "dead-config-storage",
+   "function": "payFee",
+   "severityGuess": "Low",
+   "why": "feeBps ditulis di payFee (feeBps = 0) + setFeeCommentProse (feeBps = bps) tapi tidak pernah dibaca — vault tidak pernah memakai fee; dead config yang sudah ada di fixture sejak awal, baru tertangkap detektor ke-17."
+  },
+  {
+   "detector": "dead-config-storage",
+   "function": "setDeadSwitch",
+   "severityGuess": "Low",
+   "why": "configDead ditulis di setter tapi tidak pernah dibaca — governance mengira config berlaku padahal tidak ada logika yang memakainya (kelas R-02 Fulcrom VaultPriceFeedV2 favorPrimaryPrice, sesi BB sore 15 Nov 2026)."
+  },
+  {
+   "detector": "dead-config-storage",
+   "function": "setDeadThreshold",
+   "severityGuess": "Low",
+   "why": "thresholdDead ditulis di setter tapi tidak pernah dibaca — bentuk kedua kelas R-02 (Fulcrom spreadThresholdBasisPoints)."
+  },
+  {
+   "detector": "permissionless-dispatcher",
+   "function": "dispatch",
+   "severityGuess": "Medium",
+   "why": "dispatch(bytes) external tanpa guard mengeksekusi to.call{value: call.value}(call.data) dengan target+data dari calldata yang di-decode — kelas H3 Hyperbridge CallDispatcher.dispatch (sesi BB sore 17 Nov 2026, wasit Medium, PoC-verified Foundry 4/4)."
+  },
+  {
+   "detector": "full-balance-sweep",
+   "function": "sweepEscrow",
+   "severityGuess": "Low",
+   "why": "uint256 balance = IERC20(token).balanceOf(dispatcher) lalu transfer(address(this), balance) — sweep sebesar saldo penuh kontrak perantara, bukan jumlah deklarasi — kelas H3b Hyperbridge IntentGatewayV2.placeOrder (sesi BB sore 17 Nov 2026, wasit Low)."
+  },
+  {
+   "detector": "permissionless-value-send",
+   "function": "drainValue",
+   "severityGuess": "Medium",
+   "why": "drainValue(to, amount) external tanpa guard: (bool ok,) = to.call{value: amount}(\"\") dengan return dicek — lolos unchecked-call (return ditangkap) dan permissionless-dispatcher (data kosong); kelas F8 review Kiro 17 Nov 2026."
+  },
+  {
+   "detector": "permissionless-value-send",
+   "function": "payFee",
+   "severityGuess": "Medium",
+   "why": "payFee(to, amount) external tanpa guard: to.call{value: amount}(\"\") ke alamat pilihan caller — drain ETH yang sama seperti BUG 21 (sudah ter-flag missing-access-control + unchecked-call)."
+  },
+  {
+   "detector": "empty-sublist-proof-advances-height",
+   "function": "verifyParachainHeaders",
+   "severityGuess": "Low",
+   "why": "if (len > 0) melewatkan verifyProof bila parachains kosong, state.latestHeight tetap dimajukan di verify(), proof jujur blok sama ditolak stale-check — kelas K-1 Hyperbridge EcdsaBeefy (sensor satu interval, liveness)."
+  },
+  {
+   "detector": "jit-reward-accrual-sandwich",
+   "function": "accrueReward",
+   "severityGuess": "Medium",
+   "why": "accrueReward menambah totalPooledEth tanpa mint share, stake mint pada rate pra-accrual, requestUnbond mengunci rate pasca-accrual lalu membakar share; unbondingFee default 0 — kelas VENO-C2 YbEth (sesi BB pagi 19 Nov 2026, Medium wasit, PoC-verified Foundry 4/4)."
+  },
+  {
+   "detector": "refund-locked-middleware",
+   "function": "bridge",
+   "severityGuess": "Medium",
+   "why": "bridge() meneruskan deposit ERC20 user ke bridgehub.requestL2TransactionTwoBridges (kontrak tercatat deposit sender); withdraw yang ada hanya base token (via lookup) + ETH ke treasury, tanpa rescue ERC20 arbitrer, tanpa receive()/fallback() — kelas VENO-C1 BridgeMiddleware zkCRO (sesi BB pagi 19 Nov 2026, KANDIDAT laten, mock PoC 5/5 PASS)."
+  },
+  {
+   "detector": "variant-branch-no-payload-consume",
+   "function": "decodeHeader",
+   "severityGuess": "Info",
+   "why": "Cabang ITEM_OTHER di decodeHeader hanya menandai flag tanpa membaca payload Vec<u8> dari slice, sementara cabang CONSENSUS/SEAL membaca payload via decodeItem(slice) — offset desync untuk item berikutnya; field other tak pernah terisi — kelas L-1 Hyperbridge Codec.DecodeHeader (sesi BB pagi 20 Nov 2026, Info/design, BUKAN kandidat submit — header harus genuinely finalized)."
+  },
+  {
+   "detector": "guard-asymmetry-nav-readers",
+   "function": "previewRedeem",
+   "severityGuess": "Low",
+   "why": "NavGuardTrap.previewRedeem membaca NAV lewat _nav() tanpa cek locked, sementara totalAssets() ber-guard require(!locked) — kelas H-SOMM-12 Somm Cellar (latent/hardening)."
+  },
+  {
+   "detector": "unbounded-loop-inflatable-set-accounting",
+   "function": "vestedBalanceOf",
+   "severityGuess": "Medium",
+   "why": "VestingBloatTrap.vestedBalanceOf me-loop seluruh allUserDepositIds[user].values() tanpa batas, sementara deposit() public tanpa guard menambah set itu dengan receiver bebas — kelas H-SOMM-19 Somm VestingSimple (PoC fork: brick totalAssets pada ±3.121 entri)."
+  }
+ ],
+ "expectedTotal": 30,
+ "file": "trap-vault.sol",
+ "negativeControls": [
+  {
+   "function": "withdrawSafe",
+   "pattern": "reentrancy-call-before-update",
+   "why": "Checks-effects-interactions benar: balances dikurangi SEBELUM external call."
+  },
+  {
+   "function": "sharePriceSafe",
+   "pattern": "division-no-guard",
+   "why": "require(totalShares > 0) sebelum pembagian."
+  },
+  {
+   "function": "claimWithSignatureSafe",
+   "pattern": "ecrecover-no-zero-check",
+   "why": "require(signer != address(0)) sebelum signer dipakai."
+  },
+  {
+   "function": "permitRegexControl",
+   "pattern": "missing-access-control",
+   "why": "KONTROL REGRESI SAJA, bukan pola aman: owner adalah parameter + perbandingan ==, bukan penulisan state (regresi AToken.permit Amply 2026-11-13). Fungsi ini sendiri TIDAK aman — self-signed mint tanpa nonce (temuan Kiro Opus 5.5, Critical)."
+  },
+  {
+   "function": "claimWithNonceSafe",
+   "pattern": "replay-signature",
+   "why": "Digest mengikat nonce sekali-pakai + chainId + address(this); nonce ditandai terpakai."
+  },
+  {
+   "function": "claimWithNonceSafe",
+   "pattern": "ecrecover-no-zero-check",
+   "why": "require(signer != address(0)) sebelum signer dipakai."
+  },
+  {
+   "function": "withdrawFull",
+   "pattern": "share-accounting",
+   "why": "Mengurangi balances + shares + totalShares sebelum external call."
+  },
+  {
+   "function": "withdrawFull",
+   "pattern": "reentrancy-call-before-update",
+   "why": "Checks-effects-interactions benar: semua state dikurangi SEBELUM external call."
+  },
+  {
+   "function": "setFeeCommentProse",
+   "pattern": "commented-out-check",
+   "why": "Komentar prosa menyebut 'require' tanpa kurung + baris kode non-check yang dikomentari — bukan cek yang dimatikan."
+  },
+  {
+   "function": "setFeeActive",
+   "pattern": "commented-out-function",
+   "why": "Komentar prosa yang menyebut signature (lihat function setFeeActive(uint256) untuk ...) — bukan definisi fungsi yang dikomentari."
+  },
+  {
+   "function": "getVaultPriceSafe",
+   "pattern": "oracle-passthrough-no-staleness",
+   "why": "require(block.timestamp - updatedAt < 3600) sebelum harga dipakai — umur data dicek."
+  },
+  {
+   "function": "setTraderReferralCodeByUser",
+   "pattern": "vacuous-identity-check",
+   "why": "Jalur pemanggilan langsung oleh trader — cek `affiliate != msg.sender` bermakna karena msg.sender memang trader (bentuk Fulcrom ReferralManager.setTraderReferralCodeByUser)."
+  },
+  {
+   "function": "setLiveCounter",
+   "pattern": "dead-config-storage",
+   "why": "liveCounter ditulis di setter DAN dibaca di getLiveCounter — config hidup, bukan dead config."
+  },
+  {
+   "function": "dispatchGuarded",
+   "pattern": "permissionless-dispatcher",
+   "why": "Dispatcher yang sama tapi ber-modifier onlyHandler — hanya gateway yang boleh memanggil."
+  },
+  {
+   "function": "payFee",
+   "pattern": "permissionless-dispatcher",
+   "why": "to.call{value: amount}(\"\") — data kosong, hanya kirim ETH, bukan arbitrary call (cakupan v1 detektor)."
+  },
+  {
+   "function": "sweepDeclared",
+   "pattern": "full-balance-sweep",
+   "why": "Transfer memakai jumlah yang dideklarasikan (parameter amount), bukan saldo penuh perantara."
+  },
+  {
+   "function": "rescueOwnBalance",
+   "pattern": "full-balance-sweep",
+   "why": "Sweep saldo SENDIRI (balanceOf(address(this))) ke owner — rescue by-design, dikecualikan."
+  },
+  {
+   "function": "withdrawSelf",
+   "pattern": "permissionless-value-send",
+   "why": "Kirim ETH ke msg.sender sendiri (withdraw) — penerima dikecualikan."
+  },
+  {
+   "function": "withdrawToOwner",
+   "pattern": "permissionless-value-send",
+   "why": "Kirim ETH ke owner (payout sah) — penerima dikecualikan."
+  },
+  {
+   "function": "payToken",
+   "pattern": "permissionless-value-send",
+   "why": "Transfer TOKEN dua argumen (to, amount) — bukan kirim ETH satu argumen."
+  },
+  {
+   "function": "dispatch",
+   "pattern": "permissionless-value-send",
+   "why": "dispatch punya data arbitrer (call.data) — ranah permissionless-dispatcher, bukan value-send."
+  },
+  {
+   "function": "requestUnbond",
+   "pattern": "jit-reward-accrual-sandwich",
+   "why": "Kandidat D22 dijangkarkan di fungsi accrual (accrueReward), bukan di fungsi exit — exit sendiri bukan kandidat terpisah."
+  },
+  {
+   "function": "unbond",
+   "pattern": "permissionless-value-send",
+   "why": "Payout ke msg.sender sendiri (withdraw) — penerima dikecualikan D20."
+  },
+  {
+   "function": "decodeHeaderSafe",
+   "pattern": "variant-branch-no-payload-consume",
+   "why": "Semua cabang mengonsumsi payload — cabang Other membaca payload-nya (readByte + readBytes) — D24 diam."
+  },
+  {
+   "function": "decodeHeaderUnit",
+   "pattern": "variant-branch-no-payload-consume",
+   "why": "Cabang non-konsumsi satu-satunya adalah varian unit ITEM_UNIT (tanpa payload di wire format) — D24 diam."
+  },
+  {
+   "function": "totalAssets",
+   "pattern": "guard-asymmetry-nav-readers",
+   "why": "NavGuardTrap.totalAssets ber-guard require(!locked) — saudara ber-guard, bukan kandidat."
+  }
+ ],
+ "note": "Ground truth manusia untuk pengujian pipeline M2. Kandidat di sini adalah yang DIHARAPKAN dari pipeline (detector, fungsi). Severity = tebakan awal, bukan verdict — verdict butuh PoC fork oleh wasit.",
+ "sample": "TrapVault"
 }
