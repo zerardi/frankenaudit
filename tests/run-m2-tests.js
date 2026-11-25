@@ -82,7 +82,7 @@ const html = renderReport(result);
 check("renderReport: semua ID kandidat muncul",
   result.candidates.every((c) => html.includes(c.id)));
 check("renderReport: disclaimer kandidat-bukan-verdict muncul",
-  html.includes("BUKAN verdict"));
+  html.includes("NOT a verdict"));
 check("renderReport: 3 hipotesis terkuat muncul",
   result.topHypotheses.length === 3
   && result.topHypotheses.every((c) => html.includes(c.id)));
@@ -3427,21 +3427,21 @@ check("31d freshness tak ada → 0,2",
 // 31e. Drop filter: tiap alasan berdiri sendiri.
 check("31e drop: invites false",
   scoreProgram(baseProg({ invites_testing: false }), NOW31).dropped
-    .some((r) => /undangan/.test(r)));
+    .some((r) => /public testing invitation/.test(r)));
 check("31e drop: scope kosong tanpa security.txt",
   scoreProgram(baseProg({ scope_assets: [] }), NOW31).dropped
-    .some((r) => /scope kosong/.test(r)));
+    .some((r) => /empty\/unparsed scope/.test(r)));
 check("31e TIDAK drop: scope kosong TAPI security.txt ada",
   scoreProgram(baseProg({ scope_assets: [], securityTxt: true }), NOW31).dropped.length === 0);
 check("31e drop: RoE larang otomatis",
   scoreProgram(baseProg({ automatedTestingAllowed: false }), NOW31).dropped
-    .some((r) => /RoE melarang/.test(r)));
+    .some((r) => /RoE prohibits/.test(r)));
 check("31e drop: blacklisted",
   scoreProgram(baseProg({ status: "blacklisted" }), NOW31).dropped
     .some((r) => /blacklisted/.test(r)));
 check("31e drop: excluded-tests melarang semua teknik",
   scoreProgram(baseProg({ excluded_tests: ["all automated testing"] }), NOW31).dropped
-    .some((r) => /semua teknik/.test(r)));
+    .some((r) => /all agent techniques/.test(r)));
 check("31e TIDAK drop: excluded-tests hanya mainnet",
   scoreProgram(baseProg({ excluded_tests: ["mainnet testing"] }), NOW31).dropped.length === 0);
 check("31e drop: deadline lewat",
@@ -3515,14 +3515,14 @@ check("31n intake auto: Cronos + RAAC LAYAK; Nado + Aktionariat KONFIRMASI",
   run31.results.map((r) => r.id + "=" + r.gate.verdict).join(", "));
 check("31n intake: Kiln/Tokenize/VeChain DROP (scope belum terverifikasi), BUKAN blacklist",
   run31.dropped.length === 3
-  && run31.dropped.every((r) => /scope kosong/.test(r.dropped.join(" ")))
+  && run31.dropped.every((r) => /empty\/unparsed scope/.test(r.dropped.join(" ")))
   && run31.blacklisted.length === 0,
   "dropped=" + run31.dropped.map((r) => r.id) + " blacklist=" + run31.blacklisted.map((r) => r.id));
 check("31n intake: ranked urut skor menurun, RAAC pertama",
   run31.ranked[0].id === "guardian:raac" && run31.ranked.length === 5,
   run31.ranked.map((r) => r.id + "=" + r.score).join(", "));
 check("31n intake: Nado bawa catatan gerbang reputasi (bukan tes gate)",
-  byId31["hackenproof:nado"].notes.some((n) => /gerbang reputasi ≥100/.test(n)),
+  byId31["hackenproof:nado"].notes.some((n) => /reputation gate ≥100/.test(n)),
   JSON.stringify(byId31["hackenproof:nado"].notes));
 // 31o. Intake strict (default): semua-lolos → KONFIRMASI, bukan LAYAK.
 const run31o = intakeRun(knownPrograms(), [], { now: NOW31 });
@@ -3537,7 +3537,7 @@ check("31p render kartu memuat nama/skor/vonis/routing",
   card31.slice(0, 200));
 const rep31 = renderIntakeReport(run31);
 check("31p render laporan memuat ringkasan intake",
-  rep31.includes("5 lolos ke antrean") && rep31.includes("3 drop di qualifier"),
+  rep31.includes("5 passed to the queue") && rep31.includes("3 dropped at the qualifier"),
   rep31.slice(0, 200));
 
 // --- Seksi 32. Kalibrasi R1 intake.js (review Kiro Opus 4.8, sesi 04:38 WIB 17 Nov).
@@ -3561,7 +3561,7 @@ check("32a P1 scopeCount kanonik = 40",
 const p32b = baseProg({ scope_assets: [], securityTxt: true });
 const g32b = gateProgram(p32b, "auto");
 check("32b P2 scope kosong + securityTxt → gate KONFIRMASI + alasan scope belum terurai",
-  g32b.verdict === "KONFIRMASI" && g32b.reasons.some((r) => /scope belum terurai/.test(r)),
+  g32b.verdict === "KONFIRMASI" && g32b.reasons.some((r) => /scope not yet parsed/.test(r)),
   g32b.verdict + " | " + JSON.stringify(g32b.reasons));
 check("32b P2 qualifier TIDAK drop (securityTxt ada)",
   scoreProgram(p32b, NOW31).dropped.length === 0);
@@ -3613,7 +3613,7 @@ check("32e P4 blacklisted + hash berubah → re-open (wasBlacklisted)",
 const s32f = scoreProgram(baseProg({ surfaceFit: undefined, responseHealth: undefined,
   freshness: null, rewardMaxUsd: null }), NOW31);
 check("32f P5 unknownFields memuat fit/respons/freshness/payout",
-  s32f.unknownFields.includes("fit") && s32f.unknownFields.includes("respons")
+  s32f.unknownFields.includes("fit") && s32f.unknownFields.includes("response")
   && s32f.unknownFields.includes("freshness") && s32f.unknownFields.includes("payout"),
   JSON.stringify(s32f.unknownFields));
 check("32f P5 Cronos dikenal → unknownFields kosong",
@@ -3656,12 +3656,12 @@ check("32j P11 vonis 8 program tetap: 2 LAYAK / 3 KONFIRMASI / 3 DROP",
 // kartu Cronos tetap menampilkan skor + LAYAK.
 const card32d = renderIntakeCard(run32j.results.find((r) => r.id === "cantina:kiln-v2"));
 check("32k render kartu dropped: skor — + field belum terverifikasi",
-  card32d.includes("— (drop") && card32d.includes("Field belum terverifikasi"),
+  card32d.includes("— (drop") && card32d.includes("Field not yet verified"),
   card32d.slice(0, 300));
 const card32c = renderIntakeCard(run32j.results.find((r) => r.id === "hackenproof:cronos-zkevm"));
 check("32k render kartu Cronos: 84 + LAYAK, tanpa baris field-belum-terverifikasi",
   card32c.includes("84") && card32c.includes("LAYAK")
-  && !card32c.includes("Field belum terverifikasi"));
+  && !card32c.includes("Field not yet verified"));
 // 32l. Somm (sesi #50): program ke-8, terverifikasi 21 Nov 2026 —
 // skor 75,8; vonis KONFIRMASI di auto DAN strict (izin pengujian agentic
 // belum terbukti — halaman hanya menyebut testnet/simulasi + PoC minimal);
@@ -3677,7 +3677,7 @@ check("32l Somm: skor 75,8 + KONFIRMASI (auto + strict)",
   + " strict=" + gateProgram(somm32, "strict").verdict);
 check("32l Somm: alasan gate = izin agentic belum terbukti; unknownFields kompetisi",
   gateProgram(somm32, "auto").reasons.some((r) => /agentic/.test(r))
-  && scoreProgram(somm32, NOW50).unknownFields.join(",") === "kompetisi"
+  && scoreProgram(somm32, NOW50).unknownFields.join(",") === "competition"
   && scoreProgram(somm32, NOW50).dropped.length === 0,
   JSON.stringify(gateProgram(somm32, "auto").reasons)
   + " unknown=" + JSON.stringify(scoreProgram(somm32, NOW50).unknownFields));
@@ -4213,7 +4213,7 @@ const r37dc = (r) => r.candidates.filter((c) => c.detector === "dead-config-stor
 const r37a = r37run(`        return 1;`);
 check("R3 37a turunan tak baca → TETAP Low + bukti project-pass",
   r37dc(r37a).length === 1 && r37dc(r37a)[0].severityGuess === "Low"
-    && /project-pass: hipotesis abstract-internal/.test(r37dc(r37a)[0].evidence)
+    && /project-pass: abstract-internal hypothesis/.test(r37dc(r37a)[0].evidence)
     && !/abstract-internal: mungkin dibaca/.test(r37dc(r37a)[0].evidence)
     && (r37dc(r37a)[0].infoReasons || []).length === 0,
   "dapat " + JSON.stringify(r37dc(r37a).map((c) => c.severityGuess + "|" + c.evidence)));
@@ -4286,7 +4286,7 @@ const r37h = runProjectPipeline([
 ], { baseline: buildBaselineMap([{ name: "FeeBase.sol", text: r37BaseUp }]).map });
 check("R3 37h baseline: F6 dicabut di tengah evidence → Low + upstream-diff utuh",
   r37dc(r37h).length === 1 && r37dc(r37h)[0].severityGuess === "Low"
-    && /project-pass: hipotesis abstract-internal/.test(r37dc(r37h)[0].evidence)
+    && /project-pass: abstract-internal hypothesis/.test(r37dc(r37h)[0].evidence)
     && /\[upstream-diff: absent/.test(r37dc(r37h)[0].evidence)
     && !/abstract-internal: mungkin dibaca/.test(r37dc(r37h)[0].evidence),
   "dapat " + JSON.stringify(r37dc(r37h).map((c) => c.severityGuess + "|" + c.evidence)));
@@ -5966,7 +5966,7 @@ check("D21 48b-32 G14 stale-check `>` saja -> 0 (blok sama lolos)",
   d21(BEEFY48.replace("if (s.latestHeight >= proof.blockNumber)",
     "if (s.latestHeight > proof.blockNumber)")).length === 0);
 check("D21 48b-33 F6 toVerify menyebut ikatan komitmen daftar kosong",
-  c48a.length === 1 && c48a[0].toVerify.some((t) => /terikat ke komitmen/.test(t)));
+  c48a.length === 1 && c48a[0].toVerify.some((t) => /bound to the commitment/.test(t)));
 check("D21 48b-34 N18 gerbang di modifier -> 1 (fungsi = nama kontrak)",
   d21("pragma solidity ^0.8.20;\ncontract ModTrap {\n"
     + "    struct State { uint256 latestHeight; }\n"
@@ -6686,8 +6686,8 @@ check("D22 56-15 fee tak terdeklarasi -> 1 Low",
   "dapat " + JSON.stringify(c5615.map((c) => c.location.function + ":" + c.severityGuess)));
 // 56-16. toVerify menyebut fee live + jadwal accrual + PoC fix-flip.
 check("D22 56-16 toVerify menyebut fee live + jadwal + fix-flip",
-  c56.length === 1 && c56[0].toVerify.some((t) => /LIVE fee/.test(t))
-  && c56[0].toVerify.some((t) => /jadwal accrual LIVE/.test(t))
+  c56.length === 1 && c56[0].toVerify.some((t) => /LIVE exit fee/.test(t))
+  && c56[0].toVerify.some((t) => /LIVE accrual schedule/.test(t))
   && c56[0].toVerify.some((t) => /fix-flip/.test(t)));
 
 // --- Seksi 56b. Kalibrasi R22 review Kiro Opus 5.5 (NEEDS WORK F1-F18).
@@ -7041,9 +7041,9 @@ check("D23 57-8 proxy receive+delegatecall -> 0, multicall -> 1",
     + "            (bool ok,) = address(this).delegatecall(d[i]);\n            require(ok);\n        }\n    }\n    function bridge(")).length === 1);
 // 57-9. toVerify menyebut refund bridge live + saldo live + kontrak induk.
 check("D23 57-9 toVerify menyebut refund live + saldo live + induk",
-  c57.length === 1 && c57[0].toVerify.some((t) => /refund bridge LIVE/i.test(t))
-  && c57[0].toVerify.some((t) => /saldo LIVE/i.test(t))
-  && c57[0].toVerify.some((t) => /kontrak induk/i.test(t)));
+  c57.length === 1 && c57[0].toVerify.some((t) => /LIVE bridge refund/i.test(t))
+  && c57[0].toVerify.some((t) => /LIVE balance/i.test(t))
+  && c57[0].toVerify.some((t) => /out-of-file parent/i.test(t)));
 // 57-10. deposit* pada objek router -> 1; pada objek generik (vault) -> 0.
 check("D23 57-10 deposit via router -> 1, via vault generik -> 0",
   d23(MID57.replace("return bridgehub.requestL2TransactionTwoBridges(chainId, msg.value, 0, 100000, 800, _refundRecipient, sharedBridge, 0, abi.encode(_token, _amount, _l2Receiver));",
@@ -7081,7 +7081,7 @@ const bm57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
   "veno-source", "BridgeMiddleware", "src_BridgeMiddleware.sol"), "utf8");
 check("D23 57b-0 baris panggilan bridge file asli = 234",
   d23(bm57b, "src_BridgeMiddleware.sol").length === 1
-  && /\(baris 234\)/.test(d23(bm57b, "src_BridgeMiddleware.sol")[0].evidence));
+  && /\(line 234\)/.test(d23(bm57b, "src_BridgeMiddleware.sol")[0].evidence));
 // 57b-1. F12: zkCROMintAndBridge verbatim (Direct, refund ke user) -> 0.
 const zk57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
   "veno-source", "zkCROMintAndBridge", "contracts_ZkCroMintAndBridge.sol"), "utf8");
@@ -8843,7 +8843,7 @@ check("D25 67-11 dua kontrak, helper sama -> tepat 1 (kontrak A saja)",
 // 67-12. toVerify menyebut callback/hook + perbandingan saudara ber-guard.
 check("D25 67-12 toVerify menyebut callback + saudara ber-guard",
   c67.length === 2 && c67[0].toVerify.some((t) => t.indexOf("callback") !== -1)
-    && c67[0].toVerify.some((t) => t.indexOf("ber-guard") !== -1));
+    && c67[0].toVerify.some((t) => t.indexOf("guard") !== -1));
 
 // --- Seksi 67b. Kalibrasi R25 detektor ke-25 (wasit atas review Kiro Opus 5.5
 // NEEDS WORK, sesi #56 — 11 temuan F1–F11 SEMUA TERBUKTI; tiap snippet Kiro
@@ -9137,7 +9137,7 @@ check("D26 68-11 trap-vault -> tepat 1 @ vestedBalanceOf (BUG 27)",
 check("D26 68-12 toVerify menyebut totalAssets + PoC fork + biaya bloat",
   c68.length === 1 && c68[0].toVerify.some((t) => t.indexOf("totalAssets") !== -1)
     && c68[0].toVerify.some((t) => t.indexOf("PoC fork") !== -1)
-    && c68[0].toVerify.some((t) => t.indexOf("biaya bloat") !== -1));
+    && c68[0].toVerify.some((t) => t.indexOf("bloat cost") !== -1));
 
 // --- Seksi 68b. Kalibrasi R26 detektor ke-26 (wasit atas review Kiro Opus 5.5
 // NEEDS WORK, sesi Frankenstein #59; 58 kasus: 26 benar / 12 FP / 20 FN;
