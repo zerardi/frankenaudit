@@ -1,143 +1,143 @@
-# Review silang Kiro — detektor ke-17 `dead-config-storage` (v2)
+# Kiro cross-review — 17th detector `dead-config-storage` (v2)
 
-- **Tanggal:** 16 Nov 2026, 00:41–01:21 WIB (browser task, 43 mnt)
-- **Model:** Claude Opus 5.5 (sudah terpilih di sesi Kiro)
-- **Sesi Kiro:** 9bf915c9-a01e-4675-a9bb-b92f0a1c418a ("Audit Bug Bounty Kontrak Solidity")
-- **Metode:** kode ditempel verbatim (repo GitHub main 8c3c079 TIDAK berisi
-  detektor #15/#16/#17 — hanya ada di repo lokal 225243b..fdbc819; push
-  branch tidak bisa karena push via connector dijeda atas penolakan Toufik).
-  Kiro menjalankan review dari tempelan itu di sandbox-nya (dengan jaringan:
-  clone shallow GMX/Aave/Uniswap).
-- **Kredit:** dashboard 58,28 → **76,74/4.000 (delta 18,46)**; sisa 3.923,26,
-  47 hari → tempo ≈83,5/hari (sedikit di atas garis ±82–84).
-- **Aturan read-only dipatuhi:** repo tidak diubah (`git status` bersih),
-  folder scratch di luar repo dihapus Kiro.
+- **Date:** 16 Nov 2026, 00:41–01:21 WIB (browser task, 43 min)
+- **Model:** Claude Opus 5.5 (already selected in the Kiro session)
+- **Kiro session:** 9bf915c9-a01e-4675-a9bb-b92f0a1c418a ("Audit Bug Bounty Kontrak Solidity")
+- **Method:** code pasted verbatim (GitHub repo main 8c3c079 does NOT contain
+  detectors #15/#16/#17 — they exist only in local repo 225243b..fdbc819; branch
+  push was not possible because push via connector was paused following Toufik's refusal).
+  Kiro ran the review from that paste in its sandbox (with network access:
+  shallow clone GMX/Aave/Uniswap).
+- **Credits:** dashboard 58,28 → **76,74/4.000 (delta 18,46)**; remaining 3.923,26,
+  47 days → tempo ≈83,5/day (slightly above the ±82–84 line).
+- **Read-only rule observed:** repo was not modified (`git status` clean),
+  scratch folder outside the repo was deleted by Kiro.
 
-## Vonis
+## Verdict
 
-| | v1 (sebelum) | v2 prototipe Kiro |
+| | v1 (before) | v2 Kiro prototype |
 |---|---|---|
-| Kasus adversarial | 36 | 33 deteksi |
-| Benar | **15/36** | **29/33** |
-| Salah | 6 FP + 13 FN + 2 salah-klasifikasi upstream | 4 sisa tetap ter-flag tapi turun ke Info (F1, F3, F6, F14) |
+| Adversarial cases | 36 | 33 detections |
+| Correct | **15/36** | **29/33** |
+| Wrong | 6 FP + 13 FN + 2 upstream misclassifications | 4 remaining still flagged but downgraded to Info (F1, F3, F6, F14) |
 
-Validasi harness Kiro: replika seksi 18 lolos 15/15; cuplikan trap-vault
-menghasilkan persis {configDead, feeBps, thresholdDead}; liveCounter dan
-traderReferralCodes tidak di-flag; trap-vault.sol versi main (tanpa BUG 18)
-menghasilkan hit feeBps@payFee. Batasan dicatat Kiro sendiri: kasus uji
-ditulis Kiro (risiko overfit pada v2); suite 172 tes lokal tidak dijalankan
-karena kodenya tidak ada di main.
+Kiro harness validation: section 18 replica passed 15/15; trap-vault snippet
+produced exactly {configDead, feeBps, thresholdDead}; liveCounter and
+traderReferralCodes were not flagged; trap-vault.sol main version (without BUG 18)
+produced a hit feeBps@payFee. Limitation noted by Kiro itself: test cases
+were written by Kiro (overfitting risk on v2); local test suite of 172 tests was not run
+because the code is not in main.
 
-## Kasus FP (harap 0 hit; YA = detektor salah mem-flag)
+## FP cases (expect 0 hits; YES = detector wrongly flags)
 
-| # | Pola | v1 | Perbaikan v2 |
+| # | Pattern | v1 | v2 fix |
 |---|---|---|---|
-| F1 | baca getter kontrak lain file sama (`cfg.paused()`) | YA | P1: tetap ter-flag, turun ke Info |
-| F2 | `assembly { sload(fee.slot) }` | benar | — |
-| F3 | `assembly { sload(0) }` (slot mentah) | YA | P10: tetap ter-flag, turun ke Info |
-| F4 | `this.flag()` | benar | — |
-| F5 | dibaca kontrak turunan file sama | benar | P7: baca turunan (transitif) tetap dihitung |
-| F6 | base abstrak, var internal, pembaca di file lain | YA | P2: heuristik abstract+internal → Info (project-pass penuh ditunda) |
-| F7–F11 | `emit E(fee)`, argumen external call, `delegatecall`, `abi.encode`, `keccak256` | benar | — |
-| F12–F13 | storage ref ke helper, struct field read `cfg.fee` | benar | — |
-| F14 | `uint256 public override fee` (getter interface) | YA | P1: tetap ter-flag, turun ke Info |
-| F15–F16 | baca di modifier, rantai `super.quote()` | benar | super dihitung baca (tambahan jack — v2 Kiro juga 0 di sini) |
-| F17 | lokal senama di blok `if`, state var dibaca sesudah blok | YA | P5: shadowing per-blok, bukan per-fungsi |
-| F18 | lokal di `receive()` diperlakukan sebagai state var | YA | receive/fallback dikeluarkan dari decl state var |
+| F1 | read of another contract's getter in same file (`cfg.paused()`) | YES | P1: still flagged, downgraded to Info |
+| F2 | `assembly { sload(fee.slot) }` | correct | — |
+| F3 | `assembly { sload(0) }` (raw slot) | YES | P10: still flagged, downgraded to Info |
+| F4 | `this.flag()` | correct | — |
+| F5 | read by derived contract in same file | correct | P7: derived reads (transitive) still counted |
+| F6 | abstract base, internal var, reader in another file | YES | P2: abstract+internal heuristic → Info (full project-pass deferred) |
+| F7–F11 | `emit E(fee)`, external call argument, `delegatecall`, `abi.encode`, `keccak256` | correct | — |
+| F12–F13 | storage ref to helper, struct field read `cfg.fee` | correct | — |
+| F14 | `uint256 public override fee` (interface getter) | YES | P1: still flagged, downgraded to Info |
+| F15–F16 | read in modifier, `super.quote()` chain | correct | super counted as read (jack's addition — Kiro v2 also 0 here) |
+| F17 | same-named local in an `if` block, state var read after the block | YES | P5: shadowing per-block, not per-function |
+| F18 | local in `receive()` treated as a state var | YES | receive/fallback excluded from state var declarations |
 
-## Kasus FN (harap 1 hit; TIDAK = detektor salah melewatkan)
+## FN cases (expect 1 hit; NO = detector wrongly misses)
 
-| # | Pola | v1 | Perbaikan v2 |
+| # | Pattern | v1 | v2 fix |
 |---|---|---|---|
-| N1 | tulis via `sstore(fee.slot, v)` | TIDAK | P6: sstore → tulis |
-| N2 | param modifier `check(uint256 fee)` dibaca | TIDAK | param modifier menutupi |
-| N3 | var senama di kontrak lain (file sama) | TIDAK | P7: cakupan per-kontrak |
-| N4 | `infos[u].limit = v` (tulis field dihitung baca) | TIDAK | P6: rantai member-assign → tulis |
-| N5 | array hanya `list.push(a)` | TIDAK | P6: push/pop → tulis |
-| N6 | tuple `(fee, cap) = abi.decode(...)` | TIDAK | P6: tuple LHS → tulis |
-| N7 | named return `returns (uint256 fee)` | TIDAK | P5: nama return menutupi |
-| N8 | nama hanya di string literal `"fee too high"` | TIDAK | P8: string di-mask sebelum analisis |
-| N9 | lokal di fungsi satu baris | TIDAK | P5: regex lokal dilonggarkan |
-| N10 | lokal di header for | TIDAK | P5: sama |
-| N11 | `event FeeUpdated(uint256 fee);` | TIDAK | P4: skip deklarasi event/error |
-| N12 | `error FeeTooHigh(uint256 fee);` / fungsi interface tanpa badan | TIDAK | P4: skip + span interface |
-| N13 | tuple lokal `(uint256 fee, ) = ...` | TIDAK | P5: sama |
-| N14 | baca hanya di NatSpec/komentar | benar (di-flag) | — |
-| N15 | hanya `fee += v` | benar (di-flag) | — |
+| N1 | write via `sstore(fee.slot, v)` | NO | P6: sstore → write |
+| N2 | modifier param `check(uint256 fee)` read | NO | modifier param shadows |
+| N3 | same-named var in another contract (same file) | NO | P7: scope per-contract |
+| N4 | `infos[u].limit = v` (field write counted as read) | NO | P6: member-assign chain → write |
+| N5 | array only `list.push(a)` | NO | P6: push/pop → write |
+| N6 | tuple `(fee, cap) = abi.decode(...)` | NO | P6: tuple LHS → write |
+| N7 | named return `returns (uint256 fee)` | NO | P5: return name shadows |
+| N8 | name only in string literal `"fee too high"` | NO | P8: strings masked before analysis |
+| N9 | local in one-line function | NO | P5: local regex loosened |
+| N10 | local in for header | NO | P5: same |
+| N11 | `event FeeUpdated(uint256 fee);` | NO | P4: skip event/error declarations |
+| N12 | `error FeeTooHigh(uint256 fee);` / interface function without body | NO | P4: skip + interface span |
+| N13 | tuple local `(uint256 fee, ) = ...` | NO | P5: same |
+| N14 | read only in NatSpec/comments | correct (flagged) | — |
+| N15 | only `fee += v` | correct (flagged) | — |
 
-## Klasifikasi upstream (U)
+## Upstream classification (U)
 
-- **U1:** baseline hanya punya param event senama → v1 live-divergent (salah),
-  ideal live-identical → diperbaiki P4.
-- **U2:** baseline var senama dibaca di kontrak lain (file baseline) → v1
-  live-divergent (salah), ideal live-identical → diperbaiki P7.
-- **U3:** baseline membaca lewat modifier → sudah benar (live-divergent).
-- **Celah lain (saran Kiro, DIKERJAKAN sesi ini):** lookup baseline berbasis
-  nama file — file/kontrak yang di-rename dianggap baseline tidak ada.
-  **Fallback nama kontrak ditambahkan di `classifyUpstreamDiff`:** bila
-  basename miss, cari baseline yang nama kontraknya sama sesudah normalisasi
-  sufiks versi (`VaultPriceFeedV2` → `VaultPriceFeed`). Hasil: FA-FUL-02/03
-  (`favorPrimaryPrice`/`spreadThresholdBasisPoints`) kini teranotasi
-  `live-divergent; baseline VaultPriceFeed.sol` oleh pipeline sendiri
-  (sebelumnya hanya verifikasi manual wasit); Fulcrom tanpa-baseline 9 → 3.
+- **U1:** baseline has only a same-named event param → v1 live-divergent (wrong),
+  ideal live-identical → fixed by P4.
+- **U2:** baseline same-named var read in another contract (baseline file) → v1
+  live-divergent (wrong), ideal live-identical → fixed by P7.
+- **U3:** baseline reads via modifier → already correct (live-divergent).
+- **Other gap (Kiro suggestion, DONE this session):** baseline lookup based on
+  file name — a renamed file/contract was treated as having no baseline.
+  **Contract-name fallback added in `classifyUpstreamDiff`:** when
+  basename misses, find a baseline whose contract name matches after normalizing
+  version suffixes (`VaultPriceFeedV2` → `VaultPriceFeed`). Result: FA-FUL-02/03
+  (`favorPrimaryPrice`/`spreadThresholdBasisPoints`) are now annotated
+  `live-divergent; baseline VaultPriceFeed.sol` by the pipeline itself
+  (previously only manual referee verification); Fulcrom without-baseline 9 → 3.
 
-## Temuan tambahan Kiro (helper bersama)
+## Additional Kiro finding (shared helper)
 
-`stripComments` tidak mengenali string kutip tunggal — `'ipfs://cid'`
-memotong sisa baris; pada uji Kiro, `uint256 public fee;` dan getter di baris
-yang sama ikut hilang. **Diperbaiki sesi ini (P8):** stripComments kini
-menangani `'...'` seperti `"..."` — mengenai SEMUA detektor, bukan hanya #17.
+`stripComments` does not recognize single-quoted strings — `'ipfs://cid'`
+truncates the rest of the line; in Kiro's test, `uint256 public fee;` and a getter on the same
+line were also lost. **Fixed this session (P8):** stripComments now
+handles `'...'` like `"..."` — affecting ALL detectors, not only #17.
 
-## Kalibrasi v2 yang diterapkan jack (di repo lokal)
+## v2 calibration applied by jack (in local repo)
 
-P6 + P5 + P4 dulu (menutup 10/13 FN), lalu P1 + P3, P7, P8, P10, P11,
-fallback rename. Penyimpangan/pilihan implementasi vs sketsa Kiro:
+P6 + P5 + P4 first (closing 10/13 FN), then P1 + P3, P7, P8, P10, P11,
+rename fallback. Implementation deviations/choices vs Kiro's sketch:
 
-- **Urutan member-call:** `.name(` dihitung SEBELUM filter cakupan kontrak —
-  kalau tidak, F1 tidak pernah tercatat (member-call selalu di luar span
-  pemilik). Ditemukan saat 2 tes awal gagal.
-- **`super.x()` = baca** (bukan member-call): getter kontrak induk via super
-  adalah baca yang sah (F16).
-- **Skip fungsi-tanpa-badan diperketat:** regex Kiro bisa menelan badan fungsi
-  yang berisi `;` — versi jack mensyaratkan tidak ada `{` antara `)` dan `;`.
-- **Shadowing lokal per-blok** dihitung via indeks char (cari `{` pembuka blok
-  terdalam mundur + `}` penutup maju), bukan per-baris.
-- **P2 project-pass lintas-file TIDAK diimplementasikan** (butuh pipeline
-  multi-file) — diganti heuristik abstract+internal → Info; F6 penuh tetap
+- **Member-call order:** `.name(` is counted BEFORE the contract-scope filter —
+  otherwise, F1 is never recorded (member-call is always outside the owner
+  span). Found when the first 2 tests failed.
+- **`super.x()` = read** (not a member-call): parent contract getter via super
+  is a legitimate read (F16).
+- **Function-without-body skip tightened:** Kiro's regex could swallow a function body
+  containing `;` — jack's version requires no `{` between `)` and `;`.
+- **Local shadowing per-block** computed via char index (find the opening `{` of the innermost
+  block backwards + closing `}` forwards), not per-line.
+- **P2 cross-file project-pass NOT implemented** (needs a multi-file
+  pipeline) — replaced with abstract+internal heuristic → Info; full F6 remains
   residual.
-- **P10 kasar di level file:** ada `sload/sstore` slot angka di file → semua
-  hit file itu turun ke Info (bukan per-var).
-- **P11 mensyaratkan file menyebut ERC20** (`/ERC20/` di source).
+- **P10 coarse at file level:** if there is a numeric-slot `sload/sstore` in the file → all
+  hits in that file are downgraded to Info (not per-var).
+- **P11 requires the file to mention ERC20** (`/ERC20/` in source).
 
-## Hasil tes lokal
+## Local test results
 
-**212/212 PASS** (172 lama + 40 baru: 36 kasus Kiro F/N/U + P3 + P11 +
-2 tes fallback rename). Ground truth trap-vault tetap 20 kandidat.
+**212/212 PASS** (172 old + 40 new: 36 Kiro F/N/U cases + P3 + P11 +
+2 rename fallback tests). Trap-vault ground truth remains 20 candidates.
 
-## Verifikasi korpus nyata (jack, lokal)
+## Real-corpus verification (jack, local)
 
-Pipeline v2 atas GMX v1 `contracts/` lokal (154 file): **10 hit, 0 Low,
-10 Info** — 8 param fee/leverage `public override` di Vault.sol + 2
+Pipeline v2 over local GMX v1 `contracts/` (154 files): **10 hits, 0 Low,
+10 Info** — 8 fee/leverage params `public override` in Vault.sol + 2
 ReferralStorage (`referrerTiers`, `referrerDiscountShares`, override).
-Kiro atas clone penuh (610 file, 5 repo): v1 22 hit GMX v1; v2 file-scope 17
-hit (10 Info) → 7 sesudah project-pass. Selisih hitungan dijelaskan: korpus
-lokal hanya `contracts/` (tanpa duplikat `artifacts-v2`), P11 sudah menghapus
-4 hit metadata ERC20, dan `ChainReader.latestBlockHash` tidak ada di baseline
-lokal. Kesimpulan sama: **0 dari semua hit adalah bug kelas R-02.**
+Kiro over full clone (610 files, 5 repos): v1 22 hits GMX v1; v2 file-scope 17
+hits (10 Info) → 7 after project-pass. Difference in counts explained: local corpus
+is only `contracts/` (without `artifacts-v2` duplicates), P11 already removed
+4 ERC20 metadata hits, and `ChainReader.latestBlockHash` is not in the local
+baseline. Same conclusion: **0 of all hits are R-02 class bugs.**
 
-## Hunting re-run pasca-v2 (sesi ini)
+## Post-v2 hunting re-run (this session)
 
-Fulcrom **29 → 30** (baru FA-FUL-04 `PositionManager.feeAdmin`, Low — lihat
-bb-log; 15 var Vault Low → Info via `override`); Amply **18**, RAAC **14**,
-Hyperbridge **3**, Flow **0** — identik, 0 kandidat submit baru.
+Fulcrom **29 → 30** (new FA-FUL-04 `PositionManager.feeAdmin`, Low — see
+bb-log; 15 Vault vars Low → Info via `override`); Amply **18**, RAAC **14**,
+Hyperbridge **3**, Flow **0** — identical, 0 new submit candidates.
 
-## Residual (untuk sesi berikut)
+## Residual (for following sessions)
 
-1. Project-pass lintas-file (P1 bagian kedua + P2 penuh): pembaca getter /
-   kontrak turunan di file lain masih hanya heuristik.
-2. Fallback rename memakai kontrak PERTAMA di file; file multi-kontrak bisa
-   salah pasang bila kontrak pertamanya bukan yang dicari.
-3. Heuristik abstract+internal bisa over-downgrade (var internal di kontrak
-   abstract yang memang dead tetap Info, bukan Low).
-4. Kasus uji 36 Kiro ditulis Kiro sendiri — risiko overfit; bila ada FP/FN
-   baru dari hunting nyata, tambahkan sebagai regresi.
+1. Cross-file project-pass (P1 second part + full P2): getter readers /
+   derived contracts in other files are still only heuristic.
+2. Rename fallback uses the FIRST contract in the file; multi-contract files can
+   mismatch if the first contract is not the one sought.
+3. Abstract+internal heuristic can over-downgrade (an internal var in an abstract
+   contract that is genuinely dead stays Info, not Low).
+4. Kiro's 36 test cases were written by Kiro itself — overfitting risk; if there are new FP/FN
+   from real hunting, add them as regressions.

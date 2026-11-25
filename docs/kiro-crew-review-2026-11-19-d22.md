@@ -1,207 +1,207 @@
-# Review Kiro crew atas detektor ke-22 jit-reward-accrual-sandwich (D22) — kalibrasi wasit R22, sesi #36, 19 Nov 2026
+# Kiro crew review of detector 22 jit-reward-accrual-sandwich (D22) — referee calibration R22, session #36, 19 Nov 2026
 
-- **Sesi Kiro:** BARU "Audit D22 JIT Reward Accrual", ID f4578d1e-60ef-470d-973e-8eb31e3ae8ac
+- **Kiro session:** NEW "Audit D22 JIT Reward Accrual", ID f4578d1e-60ef-470d-973e-8eb31e3ae8ac
   (https://app.kiro.dev/session/f4578d1e-60ef-470d-973e-8eb31e3ae8ac)
-- **Model:** Claude Opus 5.5 dipilih eksplisit di UI sebelum kirim pesan (sebelumnya Sonnet 5.5);
-  Kiro menjawab "Saya Claude Opus 5.5. Konteks sesi melaporkan model aktif Claude Opus 5.5" —
-  tanpa flag MODEL_TIDAK_SESUAI.
-- **Browser task:** 8dbcefa6-9afb-5dac-857c-bf1ae86e56c5, 12:54–13:08 WIB (13 mnt).
-  Login: sesi Google Arslan sudah hidup, halaman sign-in tidak pernah muncul, tanpa
-  password/2FA/konfirmasi HP.
-- **Dashboard:** sebelum 319,43/4.000 → sesudah **325,12/4.000** (delta **5,69**, footer sesi
-  5,69 — cocok persis; sisa 3.674,88, 44 hari → tempo ≈44/hari sejak 12 Nov — di bawah
-  garis 82/hari).
-- **Harness:** Kiro membangun sendiri di /projects/sandbox/d22-harness/ (detector.js, cases.js,
-  run.js; `node run.js`), dari tempelan verbatim blok D22 + harness K1–K15 — repo frankenaudit
-  TIDAK ada di sandbox, tidak ada kode repo diubah. 15 kasus K1–K15 + 28 kasus adversarial
-  buatan Kiro (A1–A28). Stub Kiro: stripComments (panjang/newline dipertahankan, string tidak
-  disentuh), extractFunctions (hanya `function NAME(`/`constructor(` — receive/fallback/modifier
-  TIDAK diekstrak), scanStateVarDecls (statement `;` kedalaman 1, constant = ada kata kunci
-  constant, immutable TIDAK dihitung constant), paramNamesOf (nama dari kurung pertama),
-  normalizeCandidate = identitas. Wasit mencatat keterbatasan stub ini di disposisi tiap temuan.
+- **Model:** Claude Opus 5.5 explicitly selected in the UI before sending the message (previously Sonnet 5.5);
+  Kiro replied "I am Claude Opus 5.5. The session context reports the active model Claude Opus 5.5" —
+  with no MODEL_TIDAK_SESUAI flag.
+- **Browser task:** 8dbcefa6-9afb-5dac-857c-bf1ae86e56c5, 12:54–13:08 WIB (13 min).
+  Login: the Arslan Google session was already live, the sign-in page never appeared, with no
+  password/2FA/phone confirmation.
+- **Dashboard:** before 319.43/4,000 → after **325.12/4,000** (delta **5.69**, session footer
+  5.69 — exact match; remaining 3,674.88, 44 days → pace ≈44/day since 12 Nov — below
+  the 82/day line).
+- **Harness:** Kiro built its own in /projects/sandbox/d22-harness/ (detector.js, cases.js,
+  run.js; `node run.js`), from a verbatim paste of the D22 block + the K1–K15 harness — the frankenaudit repo
+  was NOT in the sandbox, no repo code was changed. 15 cases K1–K15 + 28 adversarial cases
+  created by Kiro (A1–A28). Kiro stubs: stripComments (length/newlines preserved, strings not
+  touched), extractFunctions (only `function NAME(`/`constructor(` — receive/fallback/modifiers
+  are NOT extracted), scanStateVarDecls (`;` statements at depth 1, constant = the constant keyword
+  is present, immutable is NOT counted as constant), paramNamesOf (names from the first parentheses),
+  normalizeCandidate = identity. The referee noted these stub limitations in the disposition of each finding.
 
-## Vonis
+## Verdict
 
-- **D22: NEEDS WORK** — F1–F18 (di bawah). Prioritas Kiro: F1 dan F2 dulu, lalu F15/F16,
-  lalu F8–F11; F4 dan F17 BUTUH-VERIFIKASI terhadap helper asli.
+- **D22: NEEDS WORK** — F1–F18 (below). Kiro's priorities: F1 and F2 first, then F15/F16,
+  then F8–F11; F4 and F17 NEED-VERIFICATION against the real helpers.
 
-## Disposisi wasit per temuan (semua diverifikasi probe ke kode ASLI)
+## Referee disposition per finding (all verified by probes against the REAL code)
 
-Probe wasit: /tmp/probe-d22-r22.js — 28 probe, pra-kalibrasi 1/28 PASS, pasca-kalibrasi
-**28/28 PASS**; suite penuh 721 → **746/746** (Seksi 56b, 25 tes baru).
+Referee probes: /tmp/probe-d22-r22.js — 28 probes, pre-calibration 1/28 PASS, post-calibration
+**28/28 PASS**; full suite 721 → **746/746** (Section 56b, 25 new tests).
 
-### F1 — TERBUKTI, DIPERBAIKI (R22: denominator fee boleh literal)
-Regex fee mewajibkan pembagi identifier, sehingga `(total * unbondingFee) / 100000`
-persis gaya YbEth (di mana pembagi literal dipakai di varian K8b/K15b) terbaca "absent" →
-fee nonzero → Medium, fee tak terdeklarasi → Medium, evidence K2 salah.
-Perbaikan: denominator = identifier ATAU literal numerik (`100000`, `1e5`, `100_000`) ATAU
-ekspresi dalam paren. Tes 56b-1.
-**Koreksi wasit atas framing Kiro:** klaim "pada kode YbEth asli logika severity sama
-sekali tidak berjalan" GUGUR — YbEth verbatim memakai pembagi identifier
-(`UNBONDING_FEE_DENOMINATOR`) sehingga regex lama SUDAH cocok: test 56-2 (single-file → Low,
-fee "unknown") dan 56-2b (project-mode → Medium via projectStateVarInits) membuktikan jalur
-fee + projectInits bekerja di kode asli. Yang nyata adalah celah denominator literal-nya.
+### F1 — TERBUKTI, FIXED (R22: fee denominator may be a literal)
+The fee regex required an identifier divisor, so `(total * unbondingFee) / 100000`
+exactly in the YbEth style (where a literal divisor is used in variants K8b/K15b) was read as "absent" →
+nonzero fee → Medium, undeclared fee → Medium, K2 evidence wrong.
+Fix: denominator = identifier OR numeric literal (`100000`, `1e5`, `100_000`) OR
+a parenthesized expression. Test 56b-1.
+**Referee correction to Kiro's framing:** the claim "in the original YbEth code the severity logic
+never runs at all" is GUGUR — verbatim YbEth uses an identifier divisor
+(`UNBONDING_FEE_DENOMINATOR`) so the old regex ALREADY matched: test 56-2 (single-file → Low,
+fee "unknown") and 56-2b (project-mode → Medium via projectStateVarInits) prove the
+fee + projectInits path works in the original code. What was real was the literal-denominator gap.
 
-### F2 — TERBUKTI, DIPERBAIKI (R22: nama fee bare/kapital)
-Pola nama mewajibkan ≥1 karakter sebelum "fee" dan huruf kecil "ee", sehingga `fee`,
-`feeBps`, `FEE`, `UNBOND_FEE` tidak tertangkap (A4, A5). Perbaikan: feeVar =
+### F2 — TERBUKTI, FIXED (R22: bare/uppercase fee names)
+The name pattern required ≥1 character before "fee" and lowercase "ee", so `fee`,
+`feeBps`, `FEE`, `UNBOND_FEE` were not caught (A4, A5). Fix: feeVar =
 `(?:[A-Za-z_][A-Za-z0-9_$]*[Ff][Ee][Ee][A-Za-z0-9_$]*|[Ff][Ee][Ee][A-Za-z0-9_$]*)`.
-Tes 56b-2/56b-3.
-**DITOLAK sebagian:** `commission`/`tax` sebagai nama fee TIDAK diadopsi — terlalu luas
-(`tax` bertabrakan dengan banyak konteks non-fee); dicatat sebagai batas v2.
+Tests 56b-2/56b-3.
+**Partially REJECTED:** `commission`/`tax` as fee names were NOT adopted — too broad
+(`tax` collides with many non-fee contexts); noted as a v2 limit.
 
-### F3 — TERBUKTI, DIPERBAIKI (R22: operand terbalik)
-Urutan operand terbalik `(unbondingFee * total) / D` tidak cocok (A6). Perbaikan: pola fee
-memecah numerator pada `*` dan memeriksa feeVar di operand mana pun. Tes 56b-4.
+### F3 — TERBUKTI, FIXED (R22: reversed operands)
+Reversed operand order `(unbondingFee * total) / D` did not match (A6). Fix: the fee pattern
+splits the numerator on `*` and checks for feeVar in either operand. Test 56b-4.
 
-### F4 — TERBUKTI, DIPERBAIKI (R22: constant ikut dinilai)
-Fee constant nonzero dilewati `continue` lalu jatuh ke "absent" → Medium (A7).
-Verifikasi wasit: perilaku scanStateVarDecls asli memang mengisi `constant=true`, jadi klaim
-berdiri di kode asli (bukan artefak stub). Perbaikan: constant TIDAK lagi dilewati — nilai
-init-nya dipakai (nonzero → Low, nol → Medium). Tes 56b-5.
+### F4 — TERBUKTI, FIXED (R22: constants are also scored)
+A nonzero constant fee was skipped by `continue` and then fell through to "absent" → Medium (A7).
+Referee verification: the real scanStateVarDecls behavior does set `constant=true`, so the claim
+holds in the original code (not a stub artifact). Fix: constants are NO longer skipped — their
+init value is used (nonzero → Low, zero → Medium). Test 56b-5.
 
-### F5 — TERBUKTI, DIPERBAIKI (R22: assignment ctor/initialize menang)
-Fee yang diset di constructor/initialize()/setter dibaca "default-0" → Medium (A8);
-relevan karena YbEth upgradeable. Perbaikan (sempit): assignment LITERAL di constructor /
-fungsi `initialize*` meng-override initializer — literal nonzero → nonzero, literal 0 →
-zero, RHS non-literal (param) → unknown. Assignment di setter biasa TIDAK dipakai (nilai
-live admin-controlled — ditutup cek live di toVerify); YbEth tidak punya assignment
-ctor/init ke unbondingFee, jadi 56-2b tetap Medium. Tes 56b-6.
+### F5 — TERBUKTI, FIXED (R22: constructor/initialize assignment wins)
+A fee set in constructor/initialize()/setter was read as "default-0" → Medium (A8);
+relevant because YbEth is upgradeable. Fix (narrow): a LITERAL assignment in constructor /
+an `initialize*` function overrides the initializer — nonzero literal → nonzero, literal 0 →
+zero, non-literal RHS (parameter) → unknown. Assignments in ordinary setters are NOT used (live value
+admin-controlled — covered by the live check in toVerify); YbEth has no constructor/init assignment
+to unbondingFee, so 56-2b remains Medium. Test 56b-6.
 
-### F6 — TERBUKTI, DIPERBAIKI (R22: skor fee per fungsi)
-Vonis fee file-wide, var pertama urutan sumber menentukan; fee tak terkait (mintFee)
-bisa menutupi unbondingFee = 500 (A10). Perbaikan: tiap fee var diskoring — dipakai di
-fungsi exit (+2), dipakai di fungsi yang menyebut `exchangeRate` (+1), sisanya 0; skor
-tertinggi menang, seri → urutan sumber. Tes 56b-7.
+### F6 — TERBUKTI, FIXED (R22: fee scored per function)
+The fee verdict was file-wide, the first variable in source order decided; an unrelated fee (mintFee)
+could mask unbondingFee = 500 (A10). Fix: each fee var is scored — used in
+an exit function (+2), used in a function that mentions `exchangeRate` (+1), otherwise 0; the highest
+score wins, ties → source order. Test 56b-7.
 
-### F7 — TERBUKTI, DIPERBAIKI (R22: zero-init diperluas)
-`d22IsZeroInit` terlalu sempit — `0x00`, `0 ether`, `0e18` dibaca nonzero → Low (A28).
-Perbaikan: normalisasi (buang `_`/spasi) + pola `0x0+ | 0(.0+)?(eN)?( ether|wei|gwei|…)`.
-Dipakai juga di `initAssignment`. Tes 56b-8.
+### F7 — TERBUKTI, FIXED (R22: zero-init broadened)
+`d22IsZeroInit` was too narrow — `0x00`, `0 ether`, `0e18` were read as nonzero → Low (A28).
+Fix: normalization (strip `_`/spaces) + pattern `0x0+ | 0(.0+)?(eN)?( ether|wei|gwei|…)`.
+Also used in `initAssignment`. Test 56b-8.
 
-### F8 — TERBUKTI, DIPERBAIKI (R22: formula rate ditulis ulang)
-Formula rate tidak menangkap paren bersarang (A1), pembagi dalam paren (A2), mulDiv (A27),
-atau pembagi `_totalSupply`/`getTotalShares()` (A24). Perbaikan: rateFormula ditulis ulang —
-cari situs pembagian `/ TOTAL`, jalan mundur menyeimbangkan paren untuk mengambil numerator
-(precedence-aware untuk bentuk datar), cabang mulDiv (`POOL.mulDiv(F, TOTAL)` /
-`Math.mulDiv(POOL, F, TOTAL)`), pembagi diperluas (`_totalSupply`, `_totalShares`,
-`_?getTotalShares()`, `_?getTotalSupply()`). Tes 56b-9/56b-10/56b-11/56b-12.
-**F8-A3 GUGUR (artefak stub):** alias lokal `supply = totalSupply()` SUDAH ditangani regex
-asli — probe pra-kalibrasi PASS. Klaim Kiro berasal dari rekonstruksi harness-nya, bukan
-dari kode asli.
+### F8 — TERBUKTI, FIXED (R22: rate formula rewritten)
+The rate formula did not catch nested parentheses (A1), a parenthesized divisor (A2), mulDiv (A27),
+or divisors `_totalSupply`/`getTotalShares()` (A24). Fix: rateFormula rewritten —
+find the division site `/ TOTAL`, walk backwards balancing parentheses to take the numerator
+(precedence-aware for flat forms), a mulDiv branch (`POOL.mulDiv(F, TOTAL)` /
+`Math.mulDiv(POOL, F, TOTAL)`), broadened divisors (`_totalSupply`, `_totalShares`,
+`_?getTotalShares()`, `_?getTotalSupply()`). Tests 56b-9/56b-10/56b-11/56b-12.
+**F8-A3 GUGUR (stub artifact):** a local alias `supply = totalSupply()` was ALREADY handled by the real
+regex — the pre-calibration probe PASSED. Kiro's claim came from its harness reconstruction, not
+from the original code.
 
-### F9 — TERBUKTI, DIPERBAIKI (R22: mint/burn gaya Lido)
-Mint/burn hanya mengenal `_mint(`/`.mint(`/`_burn(`/`.burn(` — `_mintShares` gaya Lido
-menghilangkan kaki stake (A24). Perbaikan: `\b_?mint[A-Za-z0-9_$]*\s*\(` +
-`\.mint[A-Za-z0-9_$]*\s*\(` (dan burn analog). Tes 56b-12.
+### F9 — TERBUKTI, FIXED (R22: Lido-style mint/burn)
+Mint/burn only recognized `_mint(`/`.mint(`/`_burn(`/`.burn(` — Lido-style `_mintShares`
+removed the stake leg (A24). Fix: `\b_?mint[A-Za-z0-9_$]*\s*\(` +
+`\.mint[A-Za-z0-9_$]*\s*\(` (and the analogous burn). Test 56b-12.
 
-### F10 — TERBUKTI, DIPERBAIKI (R22: accrual `POOL = POOL + X` + alias lokal)
-Accrual hanya mengenal `POOL += param|msg.value` — `POOL = POOL + amount` (A12) dan alias
-lokal `net = amount - amount/10; POOL += net` (A13) lolos. Perbaikan: terima ketiga bentuk
-(`+=`, `= POOL + X`, `= X + POOL`) + himpunan param-derived (fixpoint ≤3 iterasi, termasuk
-turunan dari `msg.value`; var pool sendiri dikeluarkan dari himpunan). Tes 56b-13/56b-14.
+### F10 — TERBUKTI, FIXED (R22: accrual `POOL = POOL + X` + local alias)
+Accrual only recognized `POOL += param|msg.value` — `POOL = POOL + amount` (A12) and a local
+alias `net = amount - amount/10; POOL += net` (A13) slipped through. Fix: accept all three forms
+(`+=`, `= POOL + X`, `= X + POOL`) + a parameter-derived set (fixpoint ≤3 iterations, including
+derivatives of `msg.value`; the pool variable itself is excluded from the set). Tests 56b-13/56b-14.
 
-### F11 — TERBUKTI, DIPERBAIKI (R22: kunci rate digeneralisasi)
-Penguncian hanya dikenali lewat nama `exchangeRate` atau rateVar yang dikalikan — jumlah
-terkunci yang disimpan sebagai `amountOwed` (pola antrean withdrawal, A16) tidak terdeteksi.
-Perbaikan: kunci = (i) field struct/member APA PUN (`field: rateVar` / `.field = ...rateVar`,
-diakhiri `,`/`}` agar ternary tidak ikut), (ii) `* rateVar` (lama), (iii) rateVar sebagai
-nilai payout (`call{value: rateVar}` / `transfer(` / `send(`). Tes 56b-15.
-**Catatan cakupan Kiro (DITANGANI):** varian stake → accrual → withdraw instan (K5, exit
-tanpa kunci rate) kini TERTANGKAP lewat cabang (iii) — redeem langsung yang menghitung rate
-dan membayarnya di fungsi yang sama adalah pola JIT yang sama dengan langkah lebih sedikit.
-Tes 56b-25; test 56-5 (rate dihitung tapi tidak disimpan/dipakai sama sekali) tetap 0.
+### F11 — TERBUKTI, FIXED (R22: rate lock generalized)
+Locking was only recognized via the name `exchangeRate` or a multiplied rateVar — a locked
+amount stored as `amountOwed` (withdrawal queue pattern, A16) was not detected.
+Fix: lock = (i) ANY struct/member field (`field: rateVar` / `.field = ...rateVar`,
+terminated by `,`/`}` so ternaries are not included), (ii) `* rateVar` (old), (iii) rateVar as
+a payout value (`call{value: rateVar}` / `transfer(` / `send(`). Test 56b-15.
+**Kiro coverage note (HANDLED):** the stake → accrual → instant withdraw variant (K5, exit
+without a rate lock) is now CAUGHT via branch (iii) — a direct redeem that computes the rate
+and pays it out in the same function is the same JIT pattern with fewer steps.
+Test 56b-25; test 56-5 (rate computed but never stored/used at all) remains 0.
 
-### F12 — TERBUKTI, DIPERBAIKI (R22: alias lokal pool + saring state var sejati)
-`D22_POOL_NAME_RE` menerima variabel lokal sebagai pool, lalu kaki dicari dengan nama lokal
-itu padahal state var-nya bernama lain (A23). Perbaikan dua lapis: (1) `resolvePool` —
-bila identifier pool adalah lokal/param, selesaikan aliasnya (`lokal = STATEVAR;`, nama
-lokal boleh netral); tanpa alias → situs dilewati. (2) **Temuan wasit saat debugging:**
-`scanStateVarDecls` (regex tanpa filter kedalaman) ikut membaca lokal fungsi sebagai state
-var — lokal `uint256 totalPooledEth = totalStaked;` membuat `stateVarNames` mengandung
-`totalPooledEth` sehingga cabang alias tidak pernah jalan (probe V1/V2 gagal, V3 lolos).
-Perbaikan: helper baru `d22TrueStateDecls` (saring deklarasi di luar semua badan fungsi,
-dipakai `stateVarNames` + `d22StateVarInitMap` — termasuk project map). `scanStateVarDecls`
-sendiri TIDAK diubah (dipakai banyak detektor; perilaku lokal-nya di luar lingkup D22).
-Efek samping terverifikasi: lokal `unbondingFee = 0` di dalam fungsi kini TIDAK lagi
-terbaca sebagai state var (fee → unknown → Low, sesuai semantik). Tes 56b-16.
+### F12 — TERBUKTI, FIXED (R22: local pool alias + filter to true state vars)
+`D22_POOL_NAME_RE` accepted a local variable as the pool, then the legs were searched by that local name
+even though the state var had a different name (A23). Two-layer fix: (1) `resolvePool` —
+if the pool identifier is a local/parameter, resolve its alias (`local = STATEVAR;`, the local
+name may be neutral); with no alias → the site is skipped. (2) **Referee finding while debugging:**
+`scanStateVarDecls` (regex with no depth filter) also read function locals as state
+vars — a local `uint256 totalPooledEth = totalStaked;` made `stateVarNames` contain
+`totalPooledEth` so the alias branch never ran (probes V1/V2 failed, V3 passed).
+Fix: new helper `d22TrueStateDecls` (filters declarations outside all function bodies,
+used by `stateVarNames` + `d22StateVarInitMap` — including the project map). `scanStateVarDecls`
+itself was NOT changed (used by many detectors; its local behavior is outside the D22 scope).
+Verified side effect: a local `unbondingFee = 0` inside a function is now NO longer
+read as a state var (fee → unknown → Low, as per semantics). Test 56b-16.
 
-### F13 — TERBUKTI, DIPERBAIKI (R22: emit bukan gate + sufiks berbatas)
-`hasHoldingGate` menganggap pernyataan apa pun yang memuat `block.timestamp` + nama holding
-sebagai gate, termasuk emit (A20 — FN); prefiks tanpa `\b` di akhir membuat `stakeTimeout`
-ikut terhitung. Perbaikan: statement emit dilewati — dicek lewat `(^|{) emit` karena
-statement pertama `fn.body` memuat signature + `{` (perbaikan pertama `startsWith("emit")`
-gagal di probe — dideteksi wasit, bukan Kiro); nama holding = nama terurut terpanjang dulu +
-sufiks opsional `{At,Time,Timestamp,Date}` + `\b`. Tes 56b-17/56b-18.
+### F13 — TERBUKTI, FIXED (R22: emit is not a gate + bounded suffixes)
+`hasHoldingGate` treated any statement containing `block.timestamp` + a holding name
+as a gate, including emits (A20 — FN); a prefix without a trailing `\b` made `stakeTimeout`
+count as well. Fix: emit statements are skipped — checked via `(^|{) emit` because
+the first statement of `fn.body` contains the signature + `{` (the first fix `startsWith("emit")`
+failed in probes — detected by the referee, not Kiro); holding name = longest sorted name first +
+optional suffix `{At,Time,Timestamp,Date}` + `\b`. Tests 56b-17/56b-18.
 
-### F14 — TERBUKTI, DIPERBAIKI (R22: nama holding + gate modifier)
-Gate dengan nama di luar daftar (`depositedAt`, A18) atau gate di modifier/helper (A19)
-tidak terlihat. Perbaikan: daftar nama + `depositedAt`, `depositAt`, `stakeAt`; gate di
-badan modifier yang menempel pada fungsi exit ikut menggugur (helper `modifierNamesOf` +
-`scanModifiers` — `scanModifiers` kini ikut mengembalikan `name`, tambahan aditif).
-Gate di helper yang DIPANGGIL exit (bukan modifier) tetap di luar cakupan — batas v2.
-Tes 56b-19/56b-20.
+### F14 — TERBUKTI, FIXED (R22: holding names + modifier gates)
+A gate with a name outside the list (`depositedAt`, A18) or a gate in a modifier/helper (A19)
+was not visible. Fix: name list + `depositedAt`, `depositAt`, `stakeAt`; a gate in
+a modifier body attached to the exit function also disqualifies (helpers `modifierNamesOf` +
+`scanModifiers` — `scanModifiers` now also returns `name`, an additive change).
+A gate in a helper CALLED by exit (not a modifier) remains out of scope — a v2 limit.
+Tests 56b-19/56b-20.
 
-### F15 — TERBUKTI, DIPERBAIKI (R22: kaki satu kontrak)
-Tidak ada pemisahan per contract — tiga kaki dari kontrak berbeda dalam satu file digabung
-(A22). Perbaikan: `contractOf` via `contractSpans` (interface dikecualikan); stake +
-accrual harus di kontrak yang sama dengan exit; dedup per kontrak+pool; file tanpa
-kontrak / fungsi bebas → fallback file-wide lama. Tes 56b-21.
+### F15 — TERBUKTI, FIXED (R22: legs within one contract)
+There was no per-contract separation — three legs from different contracts in one file were combined
+(A22). Fix: `contractOf` via `contractSpans` (interfaces excluded); stake +
+accrual must be in the same contract as exit; dedup per contract+pool; a file with no
+contract / free functions → old file-wide fallback. Test 56b-21.
 
-### F16 — TERBUKTI, DIPERBAIKI (R22: mint/burn tak langsung via helper)
-Fungsi payable yang mint lewat helper internal (`_issueShares`) dianggap kaki accrual
-(A26). Perbaikan: himpunan mint-helper/burn-helper per kontrak (fungsi yang badannya
-mengandung panggilan mint/burn); `hasMintAny`/`hasBurnAny` = langsung ATAU via helper —
-accrual menolak mint tak langsung, stake MENERIMA mint tak langsung (jadi `submit()`
-terklasifikasi benar sebagai stake, bukan accrual). Tes 56b-22.
+### F16 — TERBUKTI, FIXED (R22: indirect mint/burn via helpers)
+A payable function that mints via an internal helper (`_issueShares`) was treated as an accrual leg
+(A26). Fix: mint-helper/burn-helper sets per contract (functions whose bodies
+contain a mint/burn call); `hasMintAny`/`hasBurnAny` = direct OR via helper —
+accrual rejects indirect mints, stake ACCEPTS indirect mints (so `submit()`
+is correctly classified as stake, not accrual). Test 56b-22.
 
-### F17 — TERBUKTI, DIPERBAIKI (R22: receive()/fallback() sbg accrual)
-Accrual lewat `receive()`/`fallback()` (A25) — Kiro menandai BUTUH-VERIFIKASI. Verifikasi
-wasit: `extractFunctions` memang TIDAK mengekstrak keduanya (tanpa kata kunci `function`) —
-klaim berdiri di kode asli. Perbaikan: helper baru `d22SpecialFns` membangun pseudo-fn
-(`receive() external payable` + badan via `blockEndIndex`) yang ikut dicari kakinya.
-Tes 56b-23.
+### F17 — TERBUKTI, FIXED (R22: receive()/fallback() as accrual)
+Accrual via `receive()`/`fallback()` (A25) — Kiro marked it NEED-VERIFICATION. Referee
+verification: `extractFunctions` indeed does NOT extract either of them (no `function` keyword) —
+the claim holds in the original code. Fix: new helper `d22SpecialFns` builds pseudo-functions
+(`receive() external payable` + body via `blockEndIndex`) that are also searched for legs.
+Test 56b-23.
 
-### F18 — SEBAGIAN DITERIMA (R22: F18b diperbaiki; F18a ditolak)
-- (a) **DITOLAK:** "lineOf didefinisikan tapi tidak dipakai" — SALAH di kode asli: `lineOf`
-  DIPAKAI di hypothesis/evidence (`baris N`). Location tanpa nomor baris adalah konvensi
-  proyek (semua detektor begitu), bukan bug D22.
-- (b) **TERBUKTI, DIPERBAIKI:** pengecualian nama file `(Mock|Harness)…\.sol` case-insensitive
-  — file produksi `harnessRouter.sol` (lowercase) ikut terlewat. Perbaikan: bagian
-  Mock|Harness case-sensitive; direktori test/mocks tetap case-insensitive. `HarnessRouter.sol`
-  (kapital-H) TETAP dilewati — itu konvensi harness (mis. harness Certora OZ), bukan
-  produksi. Tes 56b-24. Catatan: D21 memakai guard identik (belum diubah — residual,
-  di luar lingkup kalibrasi D22).
+### F18 — PARTIALLY ACCEPTED (R22: F18b fixed; F18a rejected)
+- (a) **REJECTED:** "lineOf is defined but not used" — WRONG in the original code: `lineOf`
+  IS USED in hypothesis/evidence (`line N`). A location without a line number is a project
+  convention (all detectors do this), not a D22 bug.
+- (b) **TERBUKTI, FIXED:** the filename exclusion `(Mock|Harness)…\.sol` was case-insensitive
+  — a production file `harnessRouter.sol` (lowercase) was also skipped. Fix: the
+  Mock|Harness part is case-sensitive; test/mocks directories remain case-insensitive. `HarnessRouter.sol`
+  (capital-H) is STILL skipped — that is the harness convention (e.g. OZ Certora harnesses), not
+  production. Test 56b-24. Note: D21 uses an identical guard (not yet changed — residual,
+  outside the D22 calibration scope).
 
-## Hunting ulang pasca-kalibrasi (7 permukaan, 19 Nov 2026)
+## Post-calibration re-hunting (7 surfaces, 19 Nov 2026)
 
-Identik dengan pra-kalibrasi — 0 kandidat baru, 0 D22 baru di luar Veno:
+Identical to pre-calibration — 0 new candidates, 0 new D22 outside Veno:
 
-| Permukaan | File | Kandidat | D22 |
+| Surface | Files | Candidates | D22 |
 |---|---|---|---|
 | Fulcrom | 15 | 15 | 0 |
 | Amply | 18 | 18 | 0 |
 | RAAC | 14 | 14 | 0 |
 | Hyperbridge | 7 | 7 | 0 |
 | Flow | 0 | 0 | 0 |
-| Veno (Ethereum) | 262 | 7 | 1 (FA-005, konfirmasi VENO-C2) |
+| Veno (Ethereum) | 262 | 7 | 1 (FA-005, confirmation of VENO-C2) |
 | Veno zkEVM | 10 | 0 | 0 |
 
-FA-005 tetap: `ybETH_IMPL/src_YbEth.sol` @ `accrueReward`, Medium — konfirmasi pipeline
-atas VENO-C2 (bukan kandidat submit baru; draft BB sudah ada, PoC-verified, menunggu
-serang-dulu sesi BB sore 19 Nov).
+FA-005 remains: `ybETH_IMPL/src_YbEth.sol` @ `accrueReward`, Medium — pipeline confirmation
+of VENO-C2 (not a new submission candidate; the BB draft already exists, PoC-verified, awaiting
+the hostile pass in the BB session on the afternoon of 19 Nov).
 
-## Ringkasan perubahan (R22)
+## Summary of changes (R22)
 
-- `app/pipeline.js`: `scanModifiers` +nama; D22 — header v2, `d22IsZeroInit` (F7),
-  `d22SpecialFns` (F17), `d22TrueStateDecls` (F12), `rateFormula` tulis ulang (F8/F12),
-  `hasHoldingGate` + `modifierNamesOf` (F13/F14), `exitLeg` kunci digeneralisasi (F11),
-  `stakeLeg`/`accrualLeg` (F9/F10/F16), `feeVerdict` tulis ulang (F1–F6), loop utama
-  per-kontrak (F15), guard file case-sensitive (F18b).
-- `tests/run-m2-tests.js`: Seksi 56b, 25 tes baru → **746/746**.
-- Ground truth fixture trap-vault tetap 26 kandidat (kalibrasi memperluas recall D22,
-  bukan menambah detektor); D22 tetap 1 dari 22 detektor.
-- Residual v2: nama fee `commission`/`tax` tidak diadopsi; gate di helper yang dipanggil
-  exit tidak dilacak; fee var lokal di dalam fungsi tidak diselesaikan nilainya
-  (unknown → Low); guard Mock|Harness di D21 masih case-insensitive; rate dua langkah
-  via helper convertToShare tidak dilacak.
+- `app/pipeline.js`: `scanModifiers` +name; D22 — v2 header, `d22IsZeroInit` (F7),
+  `d22SpecialFns` (F17), `d22TrueStateDecls` (F12), `rateFormula` rewritten (F8/F12),
+  `hasHoldingGate` + `modifierNamesOf` (F13/F14), `exitLeg` lock generalized (F11),
+  `stakeLeg`/`accrualLeg` (F9/F10/F16), `feeVerdict` rewritten (F1–F6), main loop
+  per-contract (F15), case-sensitive file guard (F18b).
+- `tests/run-m2-tests.js`: Section 56b, 25 new tests → **746/746**.
+- Ground truth fixture trap-vault remains 26 candidates (the calibration broadens D22 recall,
+  it does not add detectors); D22 remains 1 of 22 detectors.
+- v2 residuals: fee names `commission`/`tax` not adopted; a gate in a helper called by
+  exit is not tracked; a local fee var inside a function does not have its value resolved
+  (unknown → Low); the Mock|Harness guard in D21 is still case-insensitive; a two-step rate
+  via a convertToShare helper is not tracked.

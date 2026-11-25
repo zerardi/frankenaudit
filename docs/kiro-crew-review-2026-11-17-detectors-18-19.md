@@ -1,71 +1,71 @@
-# Review Kiro crew atas detektor ke-18/ke-19 + kalibrasi wasit R18.1/R19.1
+# Kiro crew review of detectors 18/19 + referee calibration R18.1/R19.1
 
-- Sesi Kiro: "Audit Detectors 18-19 H3" — https://app.kiro.dev/session/f2ea3494-60f2-4106-8815-96d0b113f925
-- Waktu: 17 Nov 2026, 20:51–21:05 WIB (browser task faf2eceb, 14 mnt).
-- Model: **Claude Opus 5.5 eksplisit, tanpa penolakan, tanpa flag MODEL_TIDAK_SESUAI** (footer UI tetap Opus 5.5; tidak ada "refused; answered by Opus 4.8").
-- Kredit: dashboard 178,92 → **182,29/4.000, delta 3,37** (footer "Est. Credits Used: 3.37, Elapsed Time: 3m 44s" — cocok).
-- Login: akun sudah masuk sebagai jjijundaq@gmail.com; tanpa klik Google, tanpa password/2FA.
-- Metode Kiro: harness Node atas detektor (33 kasus menurut jawabannya).
-- Vonis Kiro: **NEEDS WORK** untuk kedua detektor (F1–F20).
+- Kiro session: "Audit Detectors 18-19 H3" — https://app.kiro.dev/session/f2ea3494-60f2-4106-8815-96d0b113f925
+- Time: 17 Nov 2026, 20:51–21:05 WIB (browser task faf2eceb, 14 min).
+- Model: **Claude Opus 5.5 explicit, with no refusal, with no MODEL_TIDAK_SESUAI flag** (the UI footer remained Opus 5.5; there was no "refused; answered by Opus 4.8").
+- Credits: dashboard 178.92 → **182.29/4,000, delta 3.37** (footer "Est. Credits Used: 3.37, Elapsed Time: 3m 44s" — matches).
+- Login: the account was already signed in as jjijundaq@gmail.com; with no Google click, with no password/2FA.
+- Kiro's method: a Node harness over the detectors (33 cases according to its answer).
+- Kiro's verdict: **NEEDS WORK** for both detectors (F1–F20).
 
-## Disposisi wasit (jack) — tiap klaim diverifikasi probe ke pipeline ASLI
+## Referee disposition (jack) — each claim verified by probes against the REAL pipeline
 
-Probe: `/tmp/wasit1819/probe.js` + `/tmp/wasit1819/debug.js` (node, atas `app/pipeline.js` v1 pre-kalibrasi).
+Probes: `/tmp/wasit1819/probe.js` + `/tmp/wasit1819/debug.js` (node, over `app/pipeline.js` v1 pre-calibration).
 
-### Detektor 18 — permissionless-dispatcher
+### Detector 18 — permissionless-dispatcher
 
-| Klaim Kiro | Vonis wasit | Bukti probe |
+| Kiro claim | Referee verdict | Probe evidence |
 |---|---|---|
-| (a1) onlyGateway tak dikenali → FN | **TERBUKTI — tapi label salah: ini FP, bukan FN** (fungsi ber-guard ikut ter-flag) | P-a1: `onlyGateway` + dispatch → 1 (flagged). F1 diadopsi. |
-| (a2) require(msg.sender == gateway) → CORRECT; pola itu juga menangkap `!= address(0)` | **SEBAGIAN BENAR**: (a2) CORRECT; klaim `!=` SALAH untuk regex `require` (`!=` tak cocok `==`) — tapi `require(msg.sender == address(0))` BENAR ikut dihitung guard | P-a2a: `== address(0)` → 0 (dianggap guard). F2-narrow diadopsi (RHS harus identifier, bukan `address(0)`). |
-| (a2b) guard `if (msg.sender != X) revert` | **TERBUKTI** (temuan wasit dari prioritas F1/F2 Kiro) | P-a2b: if-revert → 1 (flagged). Pengenalan if-revert ditambahkan. |
-| (a3) delegatecall → CORRECT | **BENAR** | Sudah tes 38c. |
-| (a4) functionCall → CORRECT | **BENAR** | Sudah tes 38f. |
-| (a5) `calls[i].target.call(...)` terlewat (F4) | **TERBUKTI** | P-a5/P-a5b → 0. Akar: capture `[\w.$()]+?` menelan `.target` diawali titik → ditolak validasi, `.call` sudah terkonsumsi (debug: satu match recv=`.target`). F4 diadopsi: receiver harus diawali identifier + segmen `[..]`/member/call. |
-| (a6) target immutable + data caller → CORRECT, label/severity bedakan (F11) | **BENAR flag-nya; F11 DITUNDA** | Detektor function-scoped tak tahu tipe state var; label seragam Medium. Batas diketahui, wasit men-triase. |
-| (b) `.call{value:}("")` — pengecualian benar, tapi drain ETH-only terlewat → aturan saudara F8 | **TERBUKTI** | P-f8: bare drain `(bool ok,)=to.call{value:amt}("")` → 0 di D18+D19. F8 diadopsi sebagai detektor ke-20 `permissionless-value-send`; F9 dipatuhi (D18 tetap hanya data non-empty). Catatan: contoh Kiro "withdraw msg.sender.call" keliru — itu withdraw sah (receiver msg.sender dikecualikan F8). |
-| (e) assembly call/delegatecall terlewat (F3) | **TERBUKTI** | P-asm: assembly `call(gas(), target, ...)` → 0. F3 diadopsi (sink assembly dasar; staticcall dilewati — view-only). |
-| (e) internal dispatcher + external forwarder lolos (F10) | **DITUNDA** | Butuh call-graph satu hop lintas fungsi (di luar cakupan function-scoped). Batas diketahui, bukan dikerjakan sesi ini. |
-| F5 taint receiver / F6 taint data | **DITOLAK (sementara)** | Taint nama-param naif akan MENOLAK target utama: `call.data` di CallDispatcher tak menyebut param `encoded` (alir via `abi.decode`) — butuh taint decode-flow penuh. Perilaku konservatif (flag) dipertahankan; wasit men-triase kasus data-tetap. |
-| F7 sink diperluas | **DIADOPSI** | `functionDelegateCall`, `functionCallWithValueAndGas`, `functionDelegateCallWithGas` ditambahkan; varian staticcall SENGAJA dikecualikan. |
+| (a1) onlyGateway not recognized → FN | **TERBUKTI — but the label is wrong: this is an FP, not an FN** (a guarded function gets flagged) | P-a1: `onlyGateway` + dispatch → 1 (flagged). F1 adopted. |
+| (a2) require(msg.sender == gateway) → CORRECT; that pattern also catches `!= address(0)` | **PARTIALLY CORRECT**: (a2) CORRECT; the `!=` claim is WRONG for the `require` regex (`!=` does not match `==`) — but `require(msg.sender == address(0))` IS incorrectly counted as a guard | P-a2a: `== address(0)` → 0 (treated as a guard). F2-narrow adopted (the RHS must be an identifier, not `address(0)`). |
+| (a2b) guard `if (msg.sender != X) revert` | **TERBUKTI** (a referee finding from Kiro's F1/F2 priorities) | P-a2b: if-revert → 1 (flagged). if-revert recognition added. |
+| (a3) delegatecall → CORRECT | **CORRECT** | Already test 38c. |
+| (a4) functionCall → CORRECT | **CORRECT** | Already test 38f. |
+| (a5) `calls[i].target.call(...)` missed (F4) | **TERBUKTI** | P-a5/P-a5b → 0. Root cause: the capture `[\w.$()]+?` swallows `.target` starting with a dot → rejected by validation, `.call` already consumed (debug: one match recv=`.target`). F4 adopted: the receiver must start with an identifier + `[..]`/member/call segments. |
+| (a6) immutable target + caller data → CORRECT, distinguish label/severity (F11) | **The flag is CORRECT; F11 DEFERRED** | A function-scoped detector does not know state variable types; uniform Medium label. Known limit, the referee triages it. |
+| (b) `.call{value:}("")` — the exclusion is correct, but an ETH-only drain is missed → sibling rule F8 | **TERBUKTI** | P-f8: bare drain `(bool ok,)=to.call{value:amt}("")` → 0 in D18+D19. F8 adopted as detector 20 `permissionless-value-send`; F9 obeyed (D18 remains non-empty data only). Note: Kiro's example "withdraw msg.sender.call" is mistaken — that is a legitimate withdraw (receiver msg.sender is excluded by F8). |
+| (e) assembly call/delegatecall missed (F3) | **TERBUKTI** | P-asm: assembly `call(gas(), target, ...)` → 0. F3 adopted (basic assembly sinks; staticcall skipped — view-only). |
+| (e) internal dispatcher + external forwarder slips through (F10) | **DEFERRED** | Needs a one-hop cross-function call graph (outside function-scoped scope). Known limit, not worked on in this session. |
+| F5 receiver taint / F6 data taint | **REJECTED (for now)** | Naive parameter-name taint would REJECT the main target: `call.data` in CallDispatcher does not mention the parameter `encoded` (it flows via `abi.decode`) — it needs full decode-flow taint. The conservative behavior (flag) is retained; the referee triages fixed-data cases. |
+| F7 broadened sinks | **ADOPTED** | `functionDelegateCall`, `functionCallWithValueAndGas`, `functionDelegateCallWithGas` added; staticcall variants are DELIBERATELY excluded. |
 
-### Detektor 19 — full-balance-sweep
+### Detector 19 — full-balance-sweep
 
-| Klaim Kiro | Vonis wasit | Bukti probe |
+| Kiro claim | Referee verdict | Probe evidence |
 |---|---|---|
-| (c1) var-form ERC20 → CORRECT | **BENAR** | Sudah tes 38h. |
-| (c2) balanceOf inline → CORRECT | **BENAR** | Sudah tes 38i. |
-| (c3) Call-struct `value:` terlewat | **DITOLAK — artefak** | P-c3: bentuk murni `Call({..., value: balance, ...})` → 1 (ter-flag). Diduga harness Kiro memakai replika / varian lain. Dikunci tes 39n. |
-| (c4) rescue saldo sendiri FP | **TERJAWAB — sudah ditangani v1** | P-c4a var-form own-balance → 0; 38l direct-form → 0. F15 (pengecualian recipient address(this)/msg.sender) **DITOLAK**: membunuh target H3b — P-c4c placeOrder (recipient address(this)) → 1, harus tetap ter-flag. |
-| (c5) `balance = balance - fee` tetap flag → CORRECT | **BENAR** | P-c5 → 1. F14 literal ("reassign = bukan full-balance") **DITOLAK** karena bertentangan dengan (c5); F18 diadopsi (assignment terakhir: turunan-dari-diri mempertahankan status, reassign penuh menghapus). |
-| (c6) assignment multi-baris terlewat (F19) | **DITOLAK — artefak** | P-c6 → 1. `\s*` sesudah `=` sudah menelan newline (debug: rhs tertangkap utuh). F19 tak perlu. Dikunci tes 39n3. |
-| (d) d1/d2 lazy-span FP "TERKONFIRMASI" | **SEBAGIAN SALAH**: contoh literal d1 (dua statement) **TIDAK FP** — flag berasal dari call kedua yang memang sweep (P-d1 → 1, benar); tapi mekanisme cross-paren **TERBUKTI** via d1b | P-d1b: `emit Log(transfer(a, 1), balance)` → 1 (FP nyata — balance bukan jumlah transfer). F12 diadopsi: posisi argumen via paren seimbang. |
-| (d) transferFrom var sbg `from` → FP (F13) | **SUDAH BENAR di v1 untuk transferFrom** (prefix `[^,]+,` melindungi posisi); **TERBUKTI untuk encodeWithSelector** | P-d1c transferFrom(balance, to, amount) → 0 (sudah benar). P-d1d encodeWithSelector balance sbg recipient → 1 (FP). F13 diadopsi penuh via arg extraction posisional. |
-| F14/F18 reassignment | **F18 DIADOPSI, F14 DITOLAK** (lihat (c5)) | P-c5b `balance = required` → 1 di v1 (FP); pasca-F18 → 0 (tes 39i). |
-| F16 `ident.balance` / `payable().balance` / assembly `balance(x)` | **DIADOPSI SEBAGIAN (lite)**: `payable(X).balance` ditambahkan; `ident.balance` polos **TIDAK** dikenali (ambigu field struct — by-design); assembly `balance(x)` tidak dikerjakan (tak ada kasus korpus). | Tes 39l. |
-| F17 `==` tertangkap assignment | **TERBUKTI** | P-e17: `x == balanceOf(pool)` lalu `transfer(to, x)` → 1 (FP). `=(?!=)` diadopsi. |
-| F20 `value:` di directRe terlalu lebar | **DIADOPSI** (via rewrite F12/F13) | Nilai field `value:` kini dibaca sampai koma/`}` top-level saja. |
+| (c1) var-form ERC20 → CORRECT | **CORRECT** | Already test 38h. |
+| (c2) inline balanceOf → CORRECT | **CORRECT** | Already test 38i. |
+| (c3) Call-struct `value:` missed | **REJECTED — artifact** | P-c3: the pure form `Call({..., value: balance, ...})` → 1 (flagged). Suspected to be because Kiro's harness used a replica / another variant. Locked in by test 39n. |
+| (c4) rescuing its own balance is an FP | **ANSWERED — already handled in v1** | P-c4a var-form own-balance → 0; 38l direct-form → 0. F15 (exclusion for recipient address(this)/msg.sender) **REJECTED**: it would kill target H3b — P-c4c placeOrder (recipient address(this)) → 1, must remain flagged. |
+| (c5) `balance = balance - fee` still flags → CORRECT | **CORRECT** | P-c5 → 1. Literal F14 ("reassignment = not a full-balance") **REJECTED** because it contradicts (c5); F18 adopted (last assignment: self-derived preserves the status, a full reassignment clears it). |
+| (c6) multi-line assignment missed (F19) | **REJECTED — artifact** | P-c6 → 1. `\s*` after `=` already swallows the newline (debug: the rhs was captured whole). F19 not needed. Locked in by test 39n3. |
+| (d) d1/d2 lazy-span FP "CONFIRMED" | **PARTIALLY WRONG**: the literal d1 example (two statements) **is NOT an FP** — the flag came from the second call which is indeed a sweep (P-d1 → 1, correct); but the cross-paren mechanism is **TERBUKTI** via d1b | P-d1b: `emit Log(transfer(a, 1), balance)` → 1 (a real FP — balance is not the transfer amount). F12 adopted: argument positions via balanced parentheses. |
+| (d) transferFrom var as `from` → FP (F13) | **ALREADY CORRECT in v1 for transferFrom** (the prefix `[^,]+,` protects the position); **TERBUKTI for encodeWithSelector** | P-d1c transferFrom(balance, to, amount) → 0 (already correct). P-d1d encodeWithSelector balance as recipient → 1 (FP). F13 fully adopted via positional argument extraction. |
+| F14/F18 reassignment | **F18 ADOPTED, F14 REJECTED** (see (c5)) | P-c5b `balance = required` → 1 in v1 (FP); post-F18 → 0 (test 39i). |
+| F16 `ident.balance` / `payable().balance` / assembly `balance(x)` | **PARTIALLY ADOPTED (lite)**: `payable(X).balance` added; plain `ident.balance` is **NOT** recognized (struct field ambiguity — by design); assembly `balance(x)` not worked on (no corpus case). | Test 39l. |
+| F17 `==` caught as assignment | **TERBUKTI** | P-e17: `x == balanceOf(pool)` then `transfer(to, x)` → 1 (FP). `=(?!=)` adopted. |
+| F20 `value:` in directRe too broad | **ADOPTED** (via the F12/F13 rewrite) | The `value:` field value is now read only up to a top-level comma/`}`. |
 
-## Yang diterapkan (kalibrasi R18.1/R19.1 + F8)
+## What was applied (calibration R18.1/R19.1 + F8)
 
-1. `hasAccessGuard`: +13 modifier only* (F1: onlyGateway, onlyDispatcher, onlyIntentGateway, onlyExecutor, onlyCaller, onlyTrusted, onlyBridge, onlyMessenger, onlyAdapter, onlyModule, onlySafe, onlyMultisig, onlyTimelock); `require(msg.sender == X)` hanya bila RHS identifier (bukan `address(0)`); guard `if (msg.sender != X) revert` dua arah (F2).
-2. Detektor 18: receiver capture F4 (identifier-anchored + segmen `[..]`); sink F7; sink assembly F3 (`call`/`delegatecall`/`callcode`, target argumen ke-2; staticcall dikecualikan).
-3. Detektor 19: tulis ulang — argumen posisional via `splitTopLevelArgs` (F12/F13/F20); assignment `=(?!=)` + semantik assignment-terakhir (F17/F18); `payable(X).balance` (F16-lite).
-4. Detektor ke-20 `permissionless-value-send` (F8, Medium): `.call{value:}(...)` data kosong + `.transfer`/`.send` satu argumen, target pilihan caller; receiver msg.sender/owner/beneficiary/address(this) + value 0 dikecualikan; ERC20 transfer (2 argumen) dikecualikan via hitung argumen.
-5. Fixture: BUG 21 `drainValue` + kontrol N (withdrawToOwner/withdrawSelf) + O (payToken); ground truth 22 → **24 kandidat**; negative control 17 → **21**.
-6. Tes: **482/482 PASS** (457 lama + 25 baru seksi 39 — semua probe wasit dikunci sebagai regresi).
+1. `hasAccessGuard`: +13 only* modifiers (F1: onlyGateway, onlyDispatcher, onlyIntentGateway, onlyExecutor, onlyCaller, onlyTrusted, onlyBridge, onlyMessenger, onlyAdapter, onlyModule, onlySafe, onlyMultisig, onlyTimelock); `require(msg.sender == X)` only if the RHS is an identifier (not `address(0)`); guard `if (msg.sender != X) revert` in both directions (F2).
+2. Detector 18: F4 receiver capture (identifier-anchored + `[..]` segments); F7 sinks; F3 assembly sinks (`call`/`delegatecall`/`callcode`, target is the 2nd argument; staticcall excluded).
+3. Detector 19: rewritten — positional arguments via `splitTopLevelArgs` (F12/F13/F20); assignment `=(?!=)` + last-assignment semantics (F17/F18); `payable(X).balance` (F16-lite).
+4. Detector 20 `permissionless-value-send` (F8, Medium): `.call{value:}(...)` with empty data + one-argument `.transfer`/`.send`, caller-chosen target; receiver msg.sender/owner/beneficiary/address(this) + value 0 excluded; ERC20 transfers (2 arguments) excluded via argument counting.
+5. Fixture: BUG 21 `drainValue` + control N (withdrawToOwner/withdrawSelf) + O (payToken); ground truth 22 → **24 candidates**; negative controls 17 → **21**.
+6. Tests: **482/482 PASS** (457 old + 25 new in section 39 — all referee probes locked in as regressions).
 
-## Batas diketahui baru (residual)
+## New known limits (residual)
 
-- (R18-a) F10: forwarder satu-hop (external → internal dispatcher) tak dilacak — butuh call-graph.
-- (R18-b) F5/F6: taint receiver/data (decode-flow) belum ada — detektor konservatif (flag), wasit men-triase kasus data-tetap / target-immutable (F11: label seragam Medium).
-- (R19-a) `ident.balance` polos tak dikenali (by-design, anti-FP struct-field); assembly `balance(x)` tak dikenali.
-- (R19-b) `encodeWithSelector(...transferFrom.selector...)`: jumlah diambil argumen ke-3 (posisi transfer) — untuk transferFrom (4 argumen) jumlah sebenarnya argumen ke-4 → terlewat (konservatif, tanpa FP).
-## Kalibrasi lanjutan dari hunting re-run (R18.2/R20.1, sesi yang sama)
+- (R18-a) F10: a one-hop forwarder (external → internal dispatcher) is not tracked — needs a call graph.
+- (R18-b) F5/F6: receiver/data taint (decode-flow) does not exist yet — the detector is conservative (flags), the referee triages fixed-data / immutable-target cases (F11: uniform Medium label).
+- (R19-a) Plain `ident.balance` is not recognized (by design, anti-FP for struct fields); assembly `balance(x)` is not recognized.
+- (R19-b) `encodeWithSelector(...transferFrom.selector...)`: the amount is taken from the 3rd argument (transfer position) — for transferFrom (4 arguments) the actual amount is the 4th argument → missed (conservative, with no FP).
+## Follow-up calibration from the hunting re-run (R18.2/R20.1, same session)
 
-Hunting re-run pasca-R18.1/R19.1 menemukan 4 FP RAAC + 4 FP wrapper Hyperbridge; semuanya dibedah ke kode nyata sebelum diperbaiki:
+The post-R18.1/R19.1 hunting re-run found 4 RAAC FPs + 4 Hyperbridge wrapper FPs; all of them were dissected against the real code before being fixed:
 
-- **RAAC 4× `permissionless-dispatcher` (FA-003..006) — GUGUR, FP**: `LendingPool.initiateLiquidation/closeLiquidation/finalizeLiquidation` + `StabilityPool.liquidateBorrower` mendelegasikan ke proxy likuidasi TETAP (`liquidationProxy`/`liquidationStrategyProxy`, state var — diubah hanya via `onlyRole(PROTOCOL_ROLE)`) dengan selector TETAP (`abi.encodeWithSignature("initiateLiquidation(address,address,bytes)")`, dst.) — bukan arbitrary target/data. Akar FP: `hasAccessGuard` tak mengenal modifier majemuk (`onlyManagerOrOwner`, `onlyStabilityPool`, `onlySupportedAdapter` — `\bonlyManager\b` gagal karena `OrOwner` menempel). **Perbaikan R18.2**: pola only* dibuat GENERIK (`only[A-Z]...`) + `notBlacklisted`; pasca-perbaikan RAAC kembali **14** (0 D18). Batas: F5/F6 prinsipil (bedakan target-tetap vs arbitrer) tetap belum dikerjakan — penekanan kini lewat heuristik only*.
-- **Hyperbridge 4× `permissionless-value-send` wrapper Uniswap — GUGUR, FP**: `swapETHForExactTokens` (`WETH().call{value: msg.value}` — wrap ETH caller sendiri ke alamat WETH tetap) + `swapExactTokensForETH` Gnosis/UniV3 (tarik `amountIn` dari msg.sender → unwrap → kirim ke `to`). **Perbaikan R20.1**: F8 mengecualikan (a) nilai persis `msg.value`, (b) receiver panggilan tanpa-arg (`WETH()` = alamat tetap), (c) nilai identifier yang ditarik dari msg.sender via `transferFrom` di fungsi yang sama. Pasca-perbaikan Hyperbridge 9 → **6**; tersisa 1 F8 (UniV3 `swapExactTokensForETH`, nilai `amountOut` — output swap dari deposit `amountIn` caller, variabel output ≠ variabel input → lolos cek (c); **GUGUR wasit, batas diketahui**: F8 tak melacak turunan swap-output).
-- **Hyperbridge FA-005 `_execute` sweep (Low) — instance BARU kelas H3b**: `IntentsBase._execute` menyapu saldo penuh dispatcher sisi OUTPUT (`balanceOf(dispatcher)` / `dispatcher.balance` → gateway, `emit DustCollected`) — kelas yang sama dengan sweep input `placeOrder` (FA-004). Bukan kandidat submit baru; bahan untuk draf H3 (sisi output).
-- **Tes akhir: 488/488 PASS** (482 + 6 baru seksi 40). Hunting akhir: Fulcrom **15**, Amply **18** (recall 4/7), RAAC **14**, Hyperbridge **6**, Flow **0**.
+- **RAAC 4× `permissionless-dispatcher` (FA-003..006) — GUGUR, FP**: `LendingPool.initiateLiquidation/closeLiquidation/finalizeLiquidation` + `StabilityPool.liquidateBorrower` delegate to a FIXED liquidation proxy (`liquidationProxy`/`liquidationStrategyProxy`, state vars — changed only via `onlyRole(PROTOCOL_ROLE)`) with FIXED selectors (`abi.encodeWithSignature("initiateLiquidation(address,address,bytes)")`, etc.) — not arbitrary targets/data. FP root cause: `hasAccessGuard` did not recognize compound modifiers (`onlyManagerOrOwner`, `onlyStabilityPool`, `onlySupportedAdapter` — `\bonlyManager\b` failed because `OrOwner` was attached). **Fix R18.2**: the only* pattern was made GENERIC (`only[A-Z]...`) + `notBlacklisted`; post-fix RAAC returned to **14** (0 D18). Limit: the F5/F6 principle (distinguishing fixed vs arbitrary targets) is still not worked on — suppression now goes through the only* heuristic.
+- **Hyperbridge 4× `permissionless-value-send` Uniswap wrappers — GUGUR, FP**: `swapETHForExactTokens` (`WETH().call{value: msg.value}` — wraps the caller's own ETH to a fixed WETH address) + `swapExactTokensForETH` Gnosis/UniV3 (pulls `amountIn` from msg.sender → unwrap → sends to `to`). **Fix R20.1**: F8 excludes (a) a value of exactly `msg.value`, (b) a no-argument call receiver (`WETH()` = a fixed address), (c) an identifier value pulled from msg.sender via `transferFrom` in the same function. Post-fix Hyperbridge 9 → **6**; 1 F8 remains (UniV3 `swapExactTokensForETH`, value `amountOut` — swap output from the caller's `amountIn` deposit, output variable ≠ input variable → slips past check (c); **referee GUGUR, known limit**: F8 does not track swap-output derivatives).
+- **Hyperbridge FA-005 `_execute` sweep (Low) — a NEW instance of class H3b**: `IntentsBase._execute` sweeps the full balance of the OUTPUT-side dispatcher (`balanceOf(dispatcher)` / `dispatcher.balance` → gateway, `emit DustCollected`) — the same class as the `placeOrder` input sweep (FA-004). Not a new submission candidate; material for the H3 draft (output side).
+- **Final tests: 488/488 PASS** (482 + 6 new in section 40). Final hunting: Fulcrom **15**, Amply **18** (recall 4/7), RAAC **14**, Hyperbridge **6**, Flow **0**.

@@ -1,110 +1,110 @@
-# Review wasit R8 — kalibrasi wrapper transitif (residual 8)
+# Referee review R8 — transitive wrapper calibration (residual 8)
 
-Sesi: Frankenstein #21, 17 Nov 2026 00:38 WIB.
-Status: **R8 BERTAHAN (13/13 kasus wasit sesudah kalibrasi lanjutan R8.1).**
+Session: Frankenstein #21, 17 Nov 2026 00:38 WIB.
+Status: **R8 HOLDS (13/13 referee cases after the follow-up R8.1 calibration).**
 
-## Catatan proses: pass Kiro GAGAL (bukan vonis)
+## Process note: the Kiro pass FAILED (not a verdict)
 
-Pass Kiro crew yang direncanakan untuk kalibrasi ini **tidak berjalan**:
-browser task 1f7c63f7 (00:50–00:52 WIB) terhenti di sign-in — sesi login
-Kiro Web (cloud browser) kedaluwarsa saat membuka Agent Config, dan agen
-login tidak bisa masuk kembali: tidak ada login tersimpan untuk kiro.dev,
-tidak ada kanal chat di jendela cron untuk memasukkan kredensial.
-Dashboard sempat terbaca sebelum sesi mati: **144,55/4.000 kredit, sisa
-46 hari, plan 0/50, reset 01/12** — delta 0 sesi ini (tidak ada pass Kiro).
+The Kiro crew pass planned for this calibration **did not run**:
+browser task 1f7c63f7 (00:50–00:52 WIB) stalled at sign-in — the Kiro Web
+login session (cloud browser) expired while opening Agent Config, and the login
+agent could not get back in: there is no saved login for kiro.dev,
+and no chat channel in the cron window to enter credentials.
+The dashboard was briefly readable before the session died: **144.55/4,000 credits, 46
+days remaining, plan 0/50, reset 01/12** — delta 0 this session (no Kiro pass).
 
-**Tindak lanjut yang dibutuhkan (bukan beban sesi ini):** Toufik perlu
-login ulang ke Kiro Web (app.kiro.dev, Google SSO Arslan) — idealnya dari
-Chrome PC-nya, jalur resmi untuk aksi akun sensitif. Sampai login pulih,
-pass Kiro crew (review silang maupun hunting) TERTUNDA; sesi Frankenstein
-berikutnya memakai review wasit lokal seperti sesi ini, atau menunggu
-login pulih. Jangan retry browser task Kiro sebelum ada sinyal login hidup
-(akan gagal dengan cara yang sama).
+**Follow-up needed (not this session's burden):** Toufik needs to
+log back in to Kiro Web (app.kiro.dev, Arslan Google SSO) — ideally from
+his Chrome PC, the official path for sensitive account actions. Until the login recovers,
+Kiro crew passes (cross-reviews and hunting alike) are DELAYED; the next Frankenstein
+sessions use local referee review like this one, or wait for the
+login to recover. Do not retry a Kiro browser task before there is a signal the login is alive
+(it will fail the same way).
 
-Sebagai pengganti, review adversarial dijalankan jack-wasit lokal dengan
-probe atas kode asli (metodologi sama seperti kalibrasi wasit R5/R6.1:
-klaim hanya diterima bila probe atas kode nyata membuktikannya).
+As a substitute, the adversarial review was run by the local jack-referee with
+probes against the original code (the same methodology as referee calibrations R5/R6.1:
+a claim is only accepted if a probe against the real code proves it).
 
-## Kalibrasi awal (R8, sebelum review)
+## Initial calibration (R8, before review)
 
-`collectWrappers` + pola baca (a2) kind=`wrapper` + gerbang relevansi
-transitif. Probe awal 6 bentuk: 5 FP diperbaiki (internal, IVault, base
-inherited, berantai, member), kontrol unrelated TETAP. Dikunci tes
-seksi 29 (10 tes).
+`collectWrappers` + read pattern (a2) kind=`wrapper` + a transitive relevance
+gate. Initial probe of 6 shapes: 5 FPs fixed (internal, IVault, inherited
+base, chained, member), the unrelated control STAYS. Locked in by section
+29 tests (10 tests).
 
-## Kasus wasit (13) — hasil awal 9/13
+## Referee cases (13) — initial result 9/13
 
-| # | Kasus | Harapan | Awal | Sesudah R8.1 |
+| # | Case | Expected | Initial | After R8.1 |
 |---|-------|---------|------|--------------|
-| W-A | wrapper return via assembly | HILANG | TETAP (FN) | HILANG |
-| W-B | wrapper berargumen | HILANG | HILANG | HILANG |
-| W-C | wrapper return parameter | HILANG | HILANG | HILANG |
-| W-D | wrapper di library | HILANG | HILANG | HILANG |
-| W-E | argumen parens bersarang | HILANG | HILANG | HILANG |
-| W-F | rantai 3 level | HILANG | HILANG | HILANG |
-| W-G | `return this;` dari turunan | HILANG | HILANG | HILANG |
-| W-H | state var via alias (`V private vault;`) | HILANG | TETAP (FN) | HILANG |
-| W-I | free function wrapper | HILANG | HILANG | HILANG |
-| W-J | lokal fungsi lain (terisolasi) | TETAP | TETAP* | TETAP |
-| W-K | `super.getVault()` | HILANG | HILANG | HILANG |
-| W-L | return tuple `(Vault, uint256)` | HILANG | TETAP (FN) | HILANG |
-| W-M | `return helper.vault;` (member, tanpa call) | TETAP | TETAP | TETAP (batas) |
-| W-N | state var WARISAN | HILANG | TETAP (FN) | HILANG |
+| W-A | wrapper return via assembly | GONE | STAYS (FN) | GONE |
+| W-B | wrapper with arguments | GONE | GONE | GONE |
+| W-C | wrapper returns a parameter | GONE | GONE | GONE |
+| W-D | wrapper in a library | GONE | GONE | GONE |
+| W-E | nested-parens arguments | GONE | GONE | GONE |
+| W-F | 3-level chain | GONE | GONE | GONE |
+| W-G | `return this;` from a derived contract | GONE | GONE | GONE |
+| W-H | state var via alias (`V private vault;`) | GONE | STAYS (FN) | GONE |
+| W-I | free function wrapper | GONE | GONE | GONE |
+| W-J | local of another function (isolated) | STAYS | STAYS* | STAYS |
+| W-K | `super.getVault()` | GONE | GONE | GONE |
+| W-L | tuple return `(Vault, uint256)` | GONE | STAYS (FN) | GONE |
+| W-M | `return helper.vault;` (member, no call) | STAYS | STAYS | STAYS (boundary) |
+| W-N | INHERITED state var | GONE | STAYS (FN) | GONE |
 
-\* W-J probe pertama cacat: fungsi `other()` di fixture ikut membaca
-`vault.fee()` langsung (getter sah) sehingga kandidat ter-drop via
-getter — bukan via wrapper. Fixture diperbaiki (W-J2, terisolasi:
-`other()` hanya mendeklarasi lokal tanpa baca fee) dan TETAP sesudah
-R8.1. Pelajaran wasit: fixture kontrol harus bebas dari jalur baca lain.
+\* The first W-J probe was flawed: the `other()` function in the fixture also read
+`vault.fee()` directly (a legitimate getter) so the candidate was dropped via the
+getter — not via the wrapper. The fixture was fixed (W-J2, isolated:
+`other()` only declares a local without reading fee) and it STAYS after
+R8.1. Referee lesson: control fixtures must be free of other read paths.
 
-## Kalibrasi lanjutan R8.1 (diterapkan + dites)
+## Follow-up calibration R8.1 (applied + tested)
 
-1. **W-A — assembly return:** bila badan wrapper (string di-mask)
-   mengandung assembly `return(...)`, itu bukti badan. Alasan: fungsi
-   mendeklarasi `returns` tipe pemilik — jalur keluar assembly
-   mengembalikan instance tipe itu menurut ABI.
-2. **W-H — alias pada deklarasi:** `typedNamesOfType` kini menerima
-   alias yang mengarah ke tipe pemilik (dari `aliasMap` file
-   pendefinisi) sebagai nama tipe.
-3. **W-L — tuple unwrap:** ekspresi return yang diawali `(` diurai
-   seimbang sampai koma top-level pertama / kurung tutup — elemen
-   pertama dipakai (sesuai tipe pertama `returns`); rantai bersarang
-   diurai bertahap (maks. 3 lapis). Menggantikan strip-kurung tunggal.
-4. **W-N + W-J — scoping typed-set (perbaikan prinsipil):** helper baru
-   `ownerTypedStateVars(index, ct, baseTypeNames)` — state var
-   bertipe pemilik di kontrak pendefinisi + leluhurnya (transitif),
-   hanya deklarasi level-kontrak (badan fungsi + blok struct
-   dikeluarkan — pola yang sama dengan `findDeadConfigVars`), tipe
-   diambil dari token terakhir sebelum nama (jendela 2 baris) +
-   resolve alias per file. `typed` kini = state var (dihitung sekali
-   per kandidat) + param/named-return/lokal di badan wrapper itu
-   sendiri. Sebelumnya `scopeText` = span kontrak penuh: terlalu lebar
-   (lokal fungsi lain, W-J) DAN terlalu sempit (state var warisan, W-N).
+1. **W-A — assembly return:** if the wrapper body (masked string)
+   contains an assembly `return(...)`, that is body evidence. Reason: the function
+   declares `returns` of the owner type — the assembly exit path
+   returns an instance of that type per the ABI.
+2. **W-H — alias on declaration:** `typedNamesOfType` now accepts
+   an alias that points to the owner type (from the defining file's `aliasMap`)
+   as a type name.
+3. **W-L — tuple unwrap:** a return expression starting with `(` is parsed
+   with balanced matching up to the first top-level comma / closing paren — the
+   first element is used (matching the first type in `returns`); nested chains
+   are parsed in stages (max. 3 layers). Replaces the single paren-strip.
+4. **W-N + W-J — typed-set scoping (principled fix):** new helper
+   `ownerTypedStateVars(index, ct, baseTypeNames)` — state variables
+   typed as the owner in the defining contract + its ancestors (transitive),
+   only contract-level declarations (function bodies + struct blocks
+   excluded — the same pattern as `findDeadConfigVars`), the type
+   taken from the last token before the name (a 2-line window) +
+   per-file alias resolution. `typed` is now = state vars (computed once
+   per candidate) + params/named returns/locals in that wrapper's own body.
+   Previously `scopeText` = the full contract span: too wide
+   (locals of other functions, W-J) AND too narrow (inherited state vars, W-N).
 
-## Batas yang didokumentasikan (tidak diperbaiki)
+## Documented boundaries (not fixed)
 
-- Ternary (`return cond ? vault : Vault(address(0));`) — tidak ada
-  bukti badan (dikunci tes 29i).
-- `return helper.vault;` — akses member tanpa pemanggilan (W-M,
-  dikunci tes 30f).
-- Deklarasi state var yang tipenya terpisah >2 baris dari namanya
-  (gaya format ekstrem) bisa terlewat oleh jendela 2 baris
+- Ternary (`return cond ? vault : Vault(address(0));`) — no
+  body evidence (locked in by test 29i).
+- `return helper.vault;` — member access without a call (W-M,
+  locked in by test 30f).
+- State var declarations whose type is separated by >2 lines from their name
+  (extreme formatting style) can be missed by the 2-line window of
   `ownerTypedStateVars`.
-- `return` assembly yang mengembalikan 0 byte / revert tetap dihitung
-  bukti (sesuai ABI — fungsi mendeklarasi returns tipe pemilik).
+- An assembly `return` that returns 0 bytes / reverts still counts as
+  evidence (per the ABI — the function declares returns of the owner type).
 
-## Verifikasi
+## Verification
 
-- Test suite: **307/307 PASS** (298 lama + 9 baru seksi 30).
-- Probe wasit: 13/13 (file `/tmp/probe-w8.js`, `/tmp/probe-wn.js`,
-  `/tmp/probe-wj2.js` — scratch, tidak di-commit).
-- Hunting re-run 5 permukaan pasca-R8.1: lihat STATUS.md sesi #21
-  (Fulcrom 15, Amply 18, RAAC 14, Hyperbridge 2, Flow 0 — identik).
+- Test suite: **307/307 PASS** (298 old + 9 new in section 30).
+- Referee probes: 13/13 (files `/tmp/probe-w8.js`, `/tmp/probe-wn.js`,
+  `/tmp/probe-wj2.js` — scratch, not committed).
+- Hunting re-run on 5 surfaces after R8.1: see STATUS.md session #21
+  (Fulcrom 15, Amply 18, RAAC 14, Hyperbridge 2, Flow 0 — identical).
 
-## Residual terkait
+## Related residuals
 
-- Residual (8) wrapper transitif: **SELESAI** sesi ini.
-- Residual (10) alias berantai via file perantara (11a/11b) — masih
-  TERBUKA (calon sesi berikut).
-- Residual (3) heuristik abstract+internal, (4) risiko overfit kasus
-  Kiro, (9) localDeclRe scope blok — masih TERBUKA.
+- Residual (8) transitive wrapper: **DONE** this session.
+- Residual (10) chained alias via an intermediary file (11a/11b) — still
+  OPEN (candidate for the next session).
+- Residual (3) abstract+internal heuristic, (4) overfitting risk on Kiro
+  cases, (9) localDeclRe block scope — still OPEN.

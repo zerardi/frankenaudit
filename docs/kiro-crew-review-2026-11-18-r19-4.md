@@ -1,82 +1,81 @@
-# Review R19.4 — tipe kontrak/interface dari import di D19 (residual A17/A19) — sesi 16:38 WIB 18 Nov 2026
+# Review R19.4 — contract/interface types from imports in D19 (residuals A17/A19) — session 16:38 WIB 18 Nov 2026
 
-## Pass Kiro crew: TIDAK JALAN (tabrakan login — preseden sesi #21/#25/#29)
+## Kiro crew pass: DID NOT RUN (login collision — precedent sessions #21/#25/#29)
 
-- Sesi BB sore 18 Nov berjalan paralel (checkpoint 3 ±17:00 WIB — pass
-  Kiro #10 atas konsensus Hyperbridge sedang berjalan, browser task
-  88bc7304, Sonnet 5.5). Sesi ini TIDAK memakai Kiro Web sama sekali;
-  dashboard TIDAK dicek ulang (terakhir 268,03/4.000, sisa 3.731,97,
-  45 hari → tempo ≈82,9/hari — pas garis). Kredit Kiro sesi ini: 0.
-- **Pengganti: review wasit lokal** — probe 8 kasus atas pipeline
-  lokal (`/tmp/probe-wasit-r194.js`, dihapus sesudah pakai, dikunci
-  jadi tes seksi 47 di `tests/run-m2-tests.js`).
+- The afternoon BB session on 18 Nov was running in parallel (checkpoint 3 ±17:00 WIB — Kiro pass #10 on the Hyperbridge consensus was in progress, browser task
+  88bc7304, Sonnet 5.5). This session did NOT use Kiro Web at all;
+  the dashboard was NOT re-checked (last 268.03/4,000, remaining 3,731.97,
+  45 days → pace ≈82.9/day — on target). Kiro credits for this session: 0.
+- **Replacement: local referee review** — probes of 8 cases against the local
+  pipeline (`/tmp/probe-wasit-r194.js`, deleted after use, locked in
+  as section 47 tests in `tests/run-m2-tests.js`).
 
-## Celah yang dibuktikan probe (pra-perbaikan)
+## Gap proven by the probes (pre-fix)
 
-| Kasus | Bentuk | Harap | Dapat | Vonis |
+| Case | Shape | Expected | Got | Verdict |
 |---|---|---|---|---|
-| P1 | proyek: `IERC20` di file lain, param `IERC20 token` + `token.balance` | 1 | 0 | **FN TERBUKTI (A19 literal)** |
-| P2 | kontrol: param `address token` + `token.balance` | 1 | 1 | Benar (bentuk probe valid) |
-| P3 | proyek: `IVault` di file lain, param `IVault vault` + `vault.balance` | 1 | 0 | **FN TERBUKTI (A17)** |
-| P4 | proyek: param `IERC20[] tokens` + `tokens[0].balance` | 1 | 0 | **FN TERBUKTI (bentuk terindeks, kelas yang sama)** |
-| P5 | proyek: struct lokal `IERC20` menutupi interface file lain | 0 | 0 | Benar (penjaga struct) |
-| P6 | single-file: `IVault vault` tanpa definisi di file | 0 | 0 | Benar (konservatif) |
-| P7 | single-file: `IERC20 token`, interface tidak ada di korpus | 1 | 0 | **FN TERBUKTI (kasus nyata: IERC20 dari OZ, dependencies dikecualikan dari korpus hunting)** |
-| P8 | single-file: struct lokal `IERC20` + `info.balance` | 0 | 0 | Benar (penjaga struct) |
+| P1 | project: `IERC20` in another file, parameter `IERC20 token` + `token.balance` | 1 | 0 | **FN TERBUKTI (A19 literal)** |
+| P2 | control: parameter `address token` + `token.balance` | 1 | 1 | Correct (probe shape valid) |
+| P3 | project: `IVault` in another file, parameter `IVault vault` + `vault.balance` | 1 | 0 | **FN TERBUKTI (A17)** |
+| P4 | project: parameter `IERC20[] tokens` + `tokens[0].balance` | 1 | 0 | **FN TERBUKTI (indexed shape, same class)** |
+| P5 | project: local struct `IERC20` shadows the interface from another file | 0 | 0 | Correct (struct guard) |
+| P6 | single-file: `IVault vault` with no definition in the file | 0 | 0 | Correct (conservative) |
+| P7 | single-file: `IERC20 token`, interface not in the corpus | 1 | 0 | **FN TERBUKTI (real case: IERC20 from OZ, dependencies excluded from the hunting corpus)** |
+| P8 | single-file: local struct `IERC20` + `info.balance` | 0 | 0 | Correct (struct guard) |
 
-Catatan probe: bentuk `payable(to).transfer(x)` (ETH 1-arg) TIDAK
-memicu D19 — detektor membaca `.transfer(` sebagai ERC20 2-arg
-(`args[1]` = jumlah). Bukan cacat probe R19.4; bentuk itu di luar
-cakupan D19 saat ini (batas diketahui, tidak dikerjakan sesi ini).
+Probe note: the shape `payable(to).transfer(x)` (1-arg ETH) does NOT
+trigger D19 — the detector reads `.transfer(` as a 2-arg ERC20 call
+(`args[1]` = amount). Not an R19.4 probe defect; that shape is outside
+D19's current scope (known limit, not worked on this session).
 
-## Kalibrasi R19.4 (wasit jack)
+## R19.4 calibration (referee jack)
 
-1. **Gabungan nama tipe proyek** — `runProjectPipeline` menghitung
-   union nama kontrak/interface + struct dari SEMUA file korpus
-   (`contractSpans` + `structNamesOf` per file) lalu meneruskannya
+1. **Union of project type names** — `runProjectPipeline` computes
+   the union of contract/interface + struct names from ALL corpus files
+   (`contractSpans` + `structNamesOf` per file) then passes it
    via `opts.projectContractTypeNames` / `opts.projectStructNames`;
-   `runPipeline` menggabungkannya ke ctx. Mode single-file (tanpa
-   opts) tetap memakai set lokal saja — konservatif.
-2. **Allowlist interface standar ERC** — `WELL_KNOWN_INTERFACE_TYPES`
-   (21 nama: `IERC20`, `IERC20Metadata`, `IERC721`,
+   `runPipeline` merges it into ctx. Single-file mode (without
+   opts) still uses only the local set — conservative.
+2. **Standard ERC interface allowlist** — `WELL_KNOWN_INTERFACE_TYPES`
+   (21 names: `IERC20`, `IERC20Metadata`, `IERC721`,
    `IERC721Metadata`, `IERC721Enumerable`, `IERC721Receiver`,
    `IERC1155`, `IERC1155MetadataURI`, `IERC1155Receiver`, `IERC4626`,
    `IERC165`, `IERC777`, `IERC2981`, `IERC3156FlashBorrower`,
    `IERC3156FlashLender`, `IWETH`, `IWETH9`, `ERC20`, `ERC721`,
-   `ERC1155`) di `isAddressTypeName`, dicek SESUDAH struct-guard —
-   struct/enum senama di file ini tetap menang. Ini yang memperbaiki
-   P7: di korpus hunting nyata, `IERC20` berasal dari OZ yang
-   dikecualikan dari korpus, jadi union proyek saja TIDAK cukup.
-3. **Satu jalur penilaian tipe elemen** — kedua helper `elemIsAddress`
+   `ERC1155`) in `isAddressTypeName`, checked AFTER the struct guard —
+   a struct/enum of the same name in this file still wins. This is what fixes
+   P7: in a real hunting corpus, `IERC20` comes from OZ which is
+   excluded from the corpus, so the project union alone is NOT enough.
+3. **One element-type evaluation path** — both `elemIsAddress` helpers
    (R19.3, `collectIndexedAddressBases` + `scanIndexedAddressStateBases`)
-   kini mendelegasikan ke `isAddressTypeName` (sebelumnya menduplikasi
-   logika address/struct/kontrak). Perilaku sama kecuali allowlist.
-4. **`dispatcherNames` R18.4b tetap dari set LOKAL** — sengaja TIDAK
-   memakai gabungan proyek: nama kontrak file lain tidak boleh
-   mengikat sinyal dust ke kandidat D18 file ini. Dikunci tes 47i
-   (dua sinyal dust di file B menyebut `DustVault` → kandidat D18
-   di file A tetap Medium; bila set gabungan dipakai, keduanya
-   terikat → Low palsu).
+   now delegate to `isAddressTypeName` (previously they duplicated
+   address/struct/contract logic). Behaviour identical except the allowlist.
+4. **`dispatcherNames` R18.4b still from the LOCAL set** — deliberately does NOT
+   use the project union: a contract name from another file must not
+   bind a dust signal to a D18 candidate in this file. Locked in by test 47i
+   (two dust signals in file B mention `DustVault` → the D18 candidate
+   in file A stays Medium; if the union set were used, both would
+   bind → false Low).
 
-## Hasil pasca-kalibrasi
+## Result after calibration
 
-- **Probe 8/8 PASS**; suite **597/597 PASS** (588 lama + 9 baru
-  seksi 47: 47a–47i).
-- **Hunting re-run 5 permukaan IDENTIK, 0 kandidat baru** —
+- **Probes 8/8 PASS**; suite **597/597 PASS** (588 old + 9 new
+  in section 47: 47a–47i).
+- **Hunting re-run on 5 surfaces IDENTICAL, 0 new candidates** —
   Fulcrom **15**, Amply **18**, RAAC **14**, Hyperbridge **6**,
-  Flow **0**; recall vs Kiro AMP tetap 4/7. FA-005
-  `CallDispatcher.dispatch` tetap **Low dust-by-design**.
-  Artinya: di korpus nyata saat ini tidak ada `ident.balance` /
-  `BASE[i].balance` baru yang terungkap oleh R19.4 — kalibrasi
-  menutup kelas FN tanpa menambah noise.
+  Flow **0**; recall vs Kiro AMP still 4/7. FA-005
+  `CallDispatcher.dispatch` remains **Low dust-by-design**.
+  Meaning: in the current real corpus there is no new `ident.balance` /
+  `BASE[i].balance` revealed by R19.4 — the calibration
+  closes the FN class without adding noise.
 
-## Batas diketahui (sesudah R19.4)
+## Known limits (after R19.4)
 
-- `x = T(addr)` (cast-assignment tanpa deklarasi) belum melacak tipe.
-- `.transfer(x)` 1-arg (ETH) belum dibaca D19 sebagai jumlah sweep.
-- Tipe kontrak dari file di LUAR korpus (bukan allowlist) tetap 0
-  di mode proyek — mis. interface proyek lain yang tidak ikut
-  ter-clone; single-file tetap konservatif kecuali allowlist.
-- F5/F6 taint, F11 label-per-target, `encodeWithSelector`
-  transferFrom 4-arg, F8 swap-output rename — residual terbuka lain,
-  tidak dikerjakan sesi ini.
+- `x = T(addr)` (cast-assignment without a declaration) does not yet track the type.
+- 1-arg `.transfer(x)` (ETH) is not yet read by D19 as a sweep amount.
+- Contract types from files OUTSIDE the corpus (not on the allowlist) remain 0
+  in project mode — e.g. interfaces from another project that were not
+  cloned in; single-file remains conservative except for the allowlist.
+- F5/F6 taint, F11 per-target labels, `encodeWithSelector`
+  4-arg transferFrom, F8 swap-output rename — other open residuals,
+  not worked on this session.

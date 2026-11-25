@@ -1,146 +1,143 @@
-# Review Kiro crew atas detektor ke-23 + kalibrasi wasit R23
+# Kiro crew review of the 23rd detector + referee calibration R23
 
-Tanggal: 2026-11-19 (sesi Frankenstein #37, 16:38 WIB).
-Detektor: `refund-locked-middleware` (kelas VENO-C1 BridgeMiddleware zkCRO).
-Pass Kiro: sesi BARU e10bdb74-d30a-4e3a-9315-d7a13d02a61e,
+Date: 2026-11-19 (Frankenstein session #37, 16:38 WIB).
+Detector: `refund-locked-middleware` (VENO-C1 BridgeMiddleware zkCRO class).
+Kiro pass: NEW session e10bdb74-d30a-4e3a-9315-d7a13d02a61e,
 https://app.kiro.dev/session/e10bdb74-d30a-4e3a-9315-d7a13d02a61e,
-model Claude Opus 5.5 disetel eksplisit — TANPA penolakan, TANPA flag
-MODEL_TIDAK_SESUAI. Footer sesi 7,95 kredit; dashboard 325,8 → 333,75.
-Login Google SSO tanpa hambatan (browser task 2b3b400e, 16:47–16:57 WIB).
+model Claude Opus 5.5 set explicitly — NO refusal, NO
+MODEL_TIDAK_SESUAI flag. Session footer 7,95 credits; dashboard 325,8 → 333,75.
+Google SSO login without obstacles (browser task 2b3b400e, 16:47–16:57 WIB).
 
-## Vonis Kiro: NEEDS WORK (F1–F18)
+## Kiro's verdict: NEEDS WORK (F1–F18)
 
-Metode Kiro: detektor dijalankan di Node 22 dengan stub helper tulis
-sendiri (asumsi stub: body = isi dalam kurung kurawal — BERBEDA dari
-`extractFunctions` proyek yang body-nya mulai dari kata kunci
-`function`; C01 rekonstruksi, bukan BridgeMiddleware asli). Hasil per
-kasus: 31 kasus, 9 lolos / 22 tidak sesuai harapan (10 FP + 12 FN).
+Kiro's method: the detector was run in Node 22 with self-written helper stubs
+(stub assumption: body = contents inside curly braces — DIFFERENT from
+the project's `extractFunctions` whose body starts from the keyword
+`function`; C01 is a reconstruction, not the original BridgeMiddleware). Results per
+case: 31 cases, 9 passed / 22 did not match expectations (10 FP + 12 FN).
 
-## Verifikasi wasit (probe kode ASLI, /tmp/probe-d23-r23.js)
+## Referee verification (ORIGINAL code probe, /tmp/probe-d23-r23.js)
 
-Pra-kalibrasi: **5/35 lolos** — semua temuan Kiro terreproduksi di kode
-asli KECUALI F14. Pasca-kalibrasi: **35/35 PASS**; suite **758 → 781/781**
-(Seksi 57b, 23 tes baru).
+Pre-calibration: **5/35 passed** — all of Kiro's findings reproduced in the original
+code EXCEPT F14. Post-calibration: **35/35 PASS**; suite **758 → 781/781**
+(Section 57b, 23 new tests).
 
-### DITERIMA + DIPERBAIKI (R23)
+### ACCEPTED + FIXED (R23)
 
-- **F1 (cast inline)** — TERBUKTI. `IBridgehub(x).requestL2...` tak
-  cocok regex lama (identifier wajib sebelum titik). Perbaikan:
-  `bridgeCallIn` kini memindai `.method(` lalu membaca objek mundur —
-  identifier polos ATAU cast `Type(args)` (scan balik seimbang paren).
-- **F2 (getter + first-match)** — TERBUKTI. `bridge\w*` tak berjangkar
-  cocok `bridgehub()`/`bridgeFee()`; first-match membayangi panggilan
-  asli. Perbaikan: regex method berjangkar `^...$`, daftar getter
-  (`get*`/`is*`/`has*` + bridgehub/bridgeFee/baseToken/sharedBridge/dll.
-  dieksklusi), SEMUA kecocokan dikumpulkan + skor (strong 3 / bridge-verb
-  2 / deposit 2), terbaik menang.
-- **F3 (substring objek)** — TERBUKTI. `l1` cocok di `pool1`,
-  `gateway` di `wethGateway`, `messenger` di `tokenMessenger`.
-  Perbaikan: cabang `deposit*` kini mensyaratkan token camelCase objek
-  = `bridge*` ATAU `router` (awalan `I` antarmuka dibuang) — `pool1`/
-  `wethGateway`/`tokenMessenger` gugur; `l1Bridge`/`router`/`IBridgehub`
-  tetap.
-- **F4 (`_msgSender()`)** — TERBUKTI. Inflow kini menerima
-  `msg.sender` ATAU `_msgSender()`; lookahead rescue diperluas ke
-  `_msgSender()` (fungsi bridge tak lagi dianggap rescue dirinya).
-- **F5 (`to.transfer` ETH)** — TERBUKTI. `p.transfer` polos atas
-  parameter `address` = transfer ETH, bukan rescue. Perbaikan: bare
-  `p.transfer/safeTransfer` hanya bila `p` bertipe IERC20; bila `p`
-  address, wajib bentuk `IERC20(p).transfer/safeTransfer`.
-- **F6 (rescue di fn bridge)** — TERBUKTI. `findRescue` kini
-  mengecualikan fungsi yang berisi panggilan bridge (dust di tx yang
-  sama tidak menolong refund yang mendarat belakangan).
-- **F7 (bentuk rescue)** — TERBUKTI. Ditambah: parameter bertipe
-  IERC20 (`token.safeTransfer`), `SafeERC20.safeTransfer(IERC20(p),…)`,
-  delegasi helper internal 1 hop, `execute(target,data)` arbitrer
-  ber-guard (C31).
-- **F8 (rescue palsu)** — TERBUKTI. `transferFrom` DIHAPUS dari pola
-  rescue (revert tanpa self-allowance); `require(p == KONSTANTA)`
-  (allowlist) membatalkan rescue.
-- **F9 (rescue di parent)** — TERBUKTI. `findRescue` kini mencari di
-  kontrak + leluhur file-lokal (transitif via `contractSpans.parents`).
-- **F10 (delegatecall file-wide)** — TERBUKTI. Skip file hanya bila
-  `receive()`/`fallback()` mendelegasikan (proxy); multicall ke
-  `address(this)` tidak membungkam file.
-- **F11 (library)** — TERBUKTI. Resolusi 1 hop ke fungsi library
-  (`Lib.fn`) dengan indeks dikembalikan ke situs pemanggilan (nomor
-  baris tetap benar).
-- **F12 (semantik refund Direct)** — TERBUKTI, diverifikasi wasit ke
-  SUMBER PRIMER era-contracts di korpus (bukan sekadar klaim Kiro):
+- **F1 (inline cast)** — TERBUKTI. `IBridgehub(x).requestL2...` did not
+  match the old regex (identifier required before the dot). Fix:
+  `bridgeCallIn` now scans for `.method(` then reads the object backwards —
+  plain identifier OR cast `Type(args)` (balanced-paren reverse scan).
+- **F2 (getter + first-match)** — TERBUKTI. Unanchored `bridge\w*`
+  matched `bridgehub()`/`bridgeFee()`; first-match shadowed the real
+  call. Fix: method regex anchored `^...$`, getter list
+  (`get*`/`is*`/`has*` + bridgehub/bridgeFee/baseToken/sharedBridge/etc.
+  excluded), ALL matches collected + scored (strong 3 / bridge-verb
+  2 / deposit 2), best wins.
+- **F3 (object substring)** — TERBUKTI. `l1` matched in `pool1`,
+  `gateway` in `wethGateway`, `messenger` in `tokenMessenger`.
+  Fix: the `deposit*` branch now requires the object's camelCase token
+  = `bridge*` OR `router` (interface `I` prefix stripped) — `pool1`/
+  `wethGateway`/`tokenMessenger` drop out; `l1Bridge`/`router`/`IBridgehub`
+  remain.
+- **F4 (`_msgSender()`)** — TERBUKTI. Inflow now accepts
+  `msg.sender` OR `_msgSender()`; rescue lookahead extended to
+  `_msgSender()` (a bridge function is no longer considered its own rescue).
+- **F5 (`to.transfer` ETH)** — TERBUKTI. Plain `p.transfer` on an
+  `address` parameter = ETH transfer, not a rescue. Fix: bare
+  `p.transfer/safeTransfer` only if `p` is IERC20-typed; if `p`
+  is an address, the form `IERC20(p).transfer/safeTransfer` is required.
+- **F6 (rescue in a bridge function)** — TERBUKTI. `findRescue` now
+  excludes functions that contain a bridge call (dust in the same tx
+  does not help a refund that lands later).
+- **F7 (rescue forms)** — TERBUKTI. Added: IERC20-typed parameter
+  (`token.safeTransfer`), `SafeERC20.safeTransfer(IERC20(p),…)`,
+  1-hop internal helper delegation, guarded arbitrary `execute(target,data)` (C31).
+- **F8 (fake rescue)** — TERBUKTI. `transferFrom` REMOVED from the rescue
+  pattern (reverts without self-allowance); `require(p == CONSTANT)`
+  (allowlist) cancels a rescue.
+- **F9 (rescue in parent)** — TERBUKTI. `findRescue` now searches in
+  the contract + local-file ancestors (transitive via `contractSpans.parents`).
+- **F10 (file-wide delegatecall)** — TERBUKTI. File is skipped only if
+  `receive()`/`fallback()` delegates (proxy); multicall to
+  `address(this)` does not silence the file.
+- **F11 (library)** — TERBUKTI. 1-hop resolution to a library function
+  (`Lib.fn`) with the index returned to the call site (line numbers stay correct).
+- **F12 (Direct refund semantics)** — TERBUKTI, verified by the referee against
+  PRIMARY SOURCES from era-contracts in the corpus (not just Kiro's claim):
   `Messaging.sol` — "refundRecipient … If the transaction fails, then
-  this address will receive the `l2Value`" (di L2); `L1Bridgehub.sol`
-  `requestL2TransactionDirect` — tanpa pencatatan nullifier (beda dari
-  TwoBridges yang memanggil `bridgehubConfirmL2Transaction`);
+  this address will receive the `l2Value`" (on L2); `L1Bridgehub.sol`
+  `requestL2TransactionDirect` — no nullifier recording (different from
+  TwoBridges which calls `bridgehubConfirmL2Transaction`);
   `L1AssetRouter.depositLegacyErc20Bridge` — "Save the deposited amount
-  to claim funds on L1 if the deposit failed on L2" (jalur TwoBridges).
-  Perbaikan: panggilan `requestL2TransactionDirect` hanya dihitung
-  bila `refundRecipient = address(this)`; bila ke user lain → skip.
-  DAMPAK: **FA-009 zkCROMintAndBridge GUGUR** (FP — refund kembali ke
-  `_l2Receiver` di L2, bukan terkunci); VENO-C1 (TwoBridges) tak
-  berubah.
-- **F13 (receive revert/terbatas)** — TERBUKTI. `receive()` yang
-  berisi `revert` / `require(msg.sender == …)` kini dihitung tak ada.
-- **F15 (jangkar 2 hop)** — TERBUKTI. Jangkar kini BFS transitif
-  ≤3 hop ke entrypoint external/public terdekat.
-- **F16 (severity)** — DITERIMA. Low bila jalur hanya-ETH (tanpa
-  tokenInflow) ATAU kontrak upgradeable (`*Upgradeable` di parents /
+  to claim funds on L1 if the deposit failed on L2" (TwoBridges path).
+  Fix: a `requestL2TransactionDirect` call is only counted
+  if `refundRecipient = address(this)`; if to another user → skip.
+  IMPACT: **FA-009 zkCROMintAndBridge GUGUR** (FP — refund returns to
+  `_l2Receiver` on L2, not locked); VENO-C1 (TwoBridges) unchanged.
+- **F13 (reverting/restricted receive)** — TERBUKTI. A `receive()` that
+  contains `revert` / `require(msg.sender == …)` is now counted as absent.
+- **F15 (2-hop anchor)** — TERBUKTI. Anchor is now a transitive BFS
+  ≤3 hops to the nearest external/public entrypoint.
+- **F16 (severity)** — ACCEPTED. Low if the path is ETH-only (without
+  tokenInflow) OR the contract is upgradeable (`*Upgradeable` in parents /
   `_authorizeUpgrade`).
-- **F17 (teks bukti)** — TERBUKTI. Catatan ETH-revert hanya bila ada
-  jalur ETH (`{value:}` ke bridge — payable + `msg.value` sebagai
-  mintValue saja bukan jalur ETH); frasa hard-coded "token tertentu /
-  ETH ke treasury" dihapus.
-- **F18 (path filter)** — TERBUKTI. Ditambah: direktori `script/`,
-  `.s.sol`, sufiks `Mock`/`Harness` sebelum `.sol`.
-- **W1 (wasit, hunting pra-kalibrasi)** — Panggilan ke kontrak
-  `*middleware*` lain (`bridgeMiddleware.bridge`) BUKAN bridge-forward
-  (deposit sender-nya middleware itu). Perbaikan: callee bernama
-  `*middleware*` dikecualikan. DAMPAK: **FA-005 ybETHBridge + FA-008
-  ybUSDBridge GUGUR** (FP transitif).
+- **F17 (evidence text)** — TERBUKTI. ETH-revert note only if there is
+  an ETH path (`{value:}` to the bridge — payable + `msg.value` as
+  mintValue alone is not an ETH path); hard-coded phrase "specific token /
+  ETH to treasury" removed.
+- **F18 (path filter)** — TERBUKTI. Added: `script/` directory,
+  `.s.sol`, `Mock`/`Harness` suffix before `.sol`.
+- **W1 (referee, pre-calibration hunting)** — A call to another
+  `*middleware*` contract (`bridgeMiddleware.bridge`) is NOT a bridge-forward
+  (its deposit sender is that middleware). Fix: a callee named
+  `*middleware*` is excluded. IMPACT: **FA-005 ybETHBridge + FA-008
+  ybUSDBridge GUGUR** (transitive FP).
 
-### DITOLAK wasit
+### REJECTED by the referee
 
-- **F14 (nomor baris salah)** — ARTEFAK STUB. Klaim Kiro (laporan
-  baris 21 vs asli 24) berasal dari asumsi stub-nya (body = isi dalam
-  kurung kurawal). `extractFunctions` proyek: `body` mulai dari kata
-  kunci `function` = `startIndex`, jadi `startIndex + index-dalam-body`
-  adalah offset absolut yang benar. Bukti: kandidat FA-004 atas
-  BridgeMiddleware asli melaporkan "(baris 234)" dan `grep -n`
-  memastikan `requestL2TransactionTwoBridges` memang di baris 234.
-  Dikunci tes 57b-0. Tidak ada perubahan kode.
+- **F14 (wrong line number)** — STUB ARTIFACT. Kiro's claim (report
+  line 21 vs original 24) came from its stub assumption (body = contents inside
+  curly braces). The project's `extractFunctions`: `body` starts from the keyword
+  `function` = `startIndex`, so `startIndex + index-in-body`
+  is the correct absolute offset. Evidence: candidate FA-004 on the
+  original BridgeMiddleware reported "(line 234)" and `grep -n`
+  confirmed `requestL2TransactionTwoBridges` is indeed on line 234.
+  Locked in by test 57b-0. No code change.
 
-### DITERIMA + DIPERBAIKI (R23, lanjutan — dari hunting re-run)
+### ACCEPTED + FIXED (R23, continued — from hunting re-run)
 
-- **F19 (wasit, hunting pasca-R23)** — Perbaikan F1 (cast inline)
-  membuka hit baru yang ternyata FP: `L1Bridgehub.requestL2-
-  TransactionDirect` memanggil `IAssetRouterShared.bridgehubDeposit-
-  BaseToken` dan `AssetRouterBase._bridgehubDepositBaseToken` memanggil
-  `IAssetHandler.bridgeBurn` — ketiganya adalah PLUMBING protokol
-  (bridgehub/router/nullifier itu sendiri), bukan middleware penerus
-  deposit user; refund tidak kembali ke kontrak-kontrak ini sebagai
-  deposit sender. Perbaikan: kontrak bernama `*bridgehub*` /
-  `*assetrouter*` / `*sharedbridge*` / `*nullifier*` dikecualikan dari
-  D23. DAMPAK: **FA-009/010/011 (inti bridge) GUGUR**; Veno pasca-R23
-  final = **8 kandidat, D23 tinggal FA-004** (konfirmasi VENO-C1).
-  Batas: middleware yang kebetulan bernama `*SharedBridge*` ikut
-  terkecuali (dinilai kecil kemungkinannya; tercatat).
+- **F19 (referee, post-R23 hunting)** — The F1 fix (inline cast)
+  opened a new hit that turned out to be an FP: `L1Bridgehub.requestL2-
+  TransactionDirect` calls `IAssetRouterShared.bridgehubDeposit-
+  BaseToken` and `AssetRouterBase._bridgehubDepositBaseToken` calls
+  `IAssetHandler.bridgeBurn` — all three are protocol PLUMBING
+  (the bridgehub/router/nullifier itself), not user-deposit forwarding
+  middleware; refunds do not return to these contracts as
+  deposit senders. Fix: contracts named `*bridgehub*` /
+  `*assetrouter*` / `*sharedbridge*` / `*nullifier*` are excluded from
+  D23. IMPACT: **FA-009/010/011 (bridge core) GUGUR**; Veno post-R23
+  final = **8 candidates, D23 leaves only FA-004** (VENO-C1 confirmation).
+  Limitation: a middleware that happens to be named `*SharedBridge*` is also
+  excluded (judged unlikely; recorded).
 
-## Hasil hunting pasca-R23
+## Post-R23 hunting results
 
 - Fulcrom 15, Amply 18, RAAC 14, Hyperbridge 7, Flow 0, Veno zkEVM 0 —
-  identik (0 D23 baru, 0 FP baru).
-- Veno (Ethereum, 262 file) **11 → 8**: D23 tinggal **FA-004
-  BridgeMiddleware#bridge = KONFIRMASI pipeline atas VENO-C1**; gugur:
-  FA-005/FA-008 (transitif, W1), FA-009 zkCROMintAndBridge (Direct, F12),
-  FA-009/010/011 inti bridge (F19). 0 kandidat submit baru.
+  identical (0 new D23, 0 new FP).
+- Veno (Ethereum, 262 files) **11 → 8**: D23 leaves only **FA-004
+  BridgeMiddleware#bridge = pipeline CONFIRMATION of VENO-C1**; dropped:
+  FA-005/FA-008 (transitive, W1), FA-009 zkCROMintAndBridge (Direct, F12),
+  FA-009/010/011 bridge core (F19). 0 new submit candidates.
 
-## Batas diketahui (baru)
+## Known limitations (new)
 
-- `deposit*` pada objek tanpa token `bridge`/`router` (mis.
-  `l1Messenger.deposit`) tidak ter-flag — FN konservatif.
-- Rescue lewat `transferFrom` dari kontrak KETIGA (bukan
-  `address(this)`) tidak dihitung — jarang, batas diketahui.
-- `execute` arbitrer TANPA guard tidak dihitung rescue (itu ranah D18).
-- Jangkar transitif dibatasi 3 hop; rantai lebih panjang jangkar ke
-  fungsi bridge internal.
-- Semantik refund non-zkSync (bridge lain) tetap diserahkan ke toVerify
-  butir 1.
+- `deposit*` on an object without a `bridge`/`router` token (e.g.
+  `l1Messenger.deposit`) is not flagged — conservative FN.
+- Rescue via `transferFrom` from a THIRD contract (not
+  `address(this)`) is not counted — rare, known limitation.
+- Arbitrary `execute` WITHOUT a guard is not counted as a rescue (that is D18's domain).
+- Transitive anchor limited to 3 hops; longer chains anchor to
+  the internal bridge function.
+- Non-zkSync refund semantics (other bridges) remain left to toVerify
+  item 1.

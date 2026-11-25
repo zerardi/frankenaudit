@@ -1,108 +1,108 @@
-# Review Kiro crew atas R19.5 cast-assignment D19 — kalibrasi wasit R19.5a, sesi #34, 19 Nov 2026
+# Kiro crew review of R19.5 cast-assignment D19 — referee calibration R19.5a, session #34, 19 Nov 2026
 
-- **Sesi Kiro:** BARU "Audit R19.5 cast-assignment D19", ID 9bff4797-f78c-45dd-b4a9-65516426b201
+- **Kiro session:** NEW "Audit R19.5 cast-assignment D19", ID 9bff4797-f78c-45dd-b4a9-65516426b201
   (https://app.kiro.dev/session/9bff4797-f78c-45dd-b4a9-65516426b201)
-- **Model:** Claude Opus 5.5 dipilih eksplisit, dikonfirmasi footer sesi — tanpa flag MODEL_TIDAK_SESUAI.
-- **Browser task:** 3102abed-3c65-5ec9-a49c-fab776eff10a, 04:59–05:07 WIB (±8 mnt, jawab agen 3 mnt).
-  Login: Google SSO Arslan tanpa password/2FA/pemilih akun (sesi Google masih aktif).
-- **Dashboard:** sebelum 311,96/4.000 → sesudah **314,72/4.000** (delta **2,76**, footer sesi 2,75,
-  selisih 0,01 pembulatan; sisa 3.685,28, 44 hari → tempo ≈44/hari sejak 12 Nov — di bawah garis 82/hari).
-- **Harness:** Kiro membangun sendiri di /projects/sandbox/r195-harness/ (harness.js, cases.js, perf.js),
-  dari tempelan verbatim blok R19.5 — repo frankenaudit TIDAK ada di sandbox, tidak ada kode repo diubah.
-  28 kasus + stress test; tiap kasus divalidasi solc-js 0.8.28. Stub Kiro: parser param, regex deklarasi
-  (pengganti addrRe), loop penghapusan shadow, isAddressTypeName dgn allowlist 8 nama, maskStringLiterals,
-  cabang ident.balance dari isFullBalanceExpr; sink tidak dimodelkan (yang diuji ekspresi amount langsung).
-  Wasit mencatat keterbatasan stub ini di disposisi tiap temuan.
+- **Model:** Claude Opus 5.5 selected explicitly, confirmed by the session footer — no MODEL_TIDAK_SESUAI flag.
+- **Browser task:** 3102abed-3c65-5ec9-a49c-fab776eff10a, 04:59–05:07 WIB (±8 min, agent answer 3 min).
+  Login: Google SSO Arslan with no password/2FA/account picker (the Google session was still active).
+- **Dashboard:** before 311.96/4,000 → after **314.72/4,000** (delta **2.76**, session footer 2.75,
+  difference 0.01 rounding; remaining 3,685.28, 44 days → pace ≈44/day since 12 Nov — below the 82/day line).
+- **Harness:** Kiro built its own in /projects/sandbox/r195-harness/ (harness.js, cases.js, perf.js),
+  from a verbatim paste of the R19.5 block — the frankenaudit repo is NOT in the sandbox, no repo code was changed.
+  28 cases + a stress test; each case validated with solc-js 0.8.28. Kiro's stubs: parameter parser, declaration regex
+  (replacing addrRe), shadow-removal loop, isAddressTypeName with an 8-name allowlist, maskStringLiterals,
+  the ident.balance branch from isFullBalanceExpr; sinks not modelled (what was tested is the direct amount expression).
+  The referee noted these stub limitations in the disposition of each finding.
 
-## Vonis
+## Verdict
 
-- **R19.5: NEEDS WORK** — F1–F6 (di bawah).
+- **R19.5: NEEDS WORK** — F1–F6 (below).
 
-## Disposisi wasit per temuan (semua diverifikasi probe ke kode ASLI + solc 0.8.20 lokal)
+## Referee disposition per finding (all verified with probes against the ORIGINAL code + local solc 0.8.20)
 
-### F1 — TERBUKTI, DIPERBAIKI (R19.5a: lengan kontrak dihapus + cek cast-utuh)
-Cabang cast hanya memeriksa RHS diawali `T(`, tanpa memastikan cast adalah keseluruhan RHS —
-`T(v).method()` ikut dihitung cast. Kasus 5b `Info memory info = IVault(v).getInfo();` lalu
-`info.balance` (kode VALID, solc lolos) → 1 pra-perbaikan; 5c/5d sama; 12b
-`uint256 bal = IERC20(t).balanceOf(a);` menunjukkan set tercemar (probe Kiro sendiri invalid —
-flag di sana berasal dari aturan `.balanceOf(` generik, bukan dari kontaminasi; efek samping
-whole-RHS tetap membersihkan `bal` dari set). Perbaikan dua lapis: (1) lengan tipe-kontrak
-DIHAPUS dari cabang cast (lihat F6 — semua instans F1 pada kode valid mengalir lewat lengan itu);
-(2) cast harus menjadi keseluruhan RHS — lompat ke `)` penutup (kurung seimbang, helper baru
-`matchingParenEnd`) dan terima hanya bila karakter non-spasi berikutnya adalah `;`, `,` atau `)`.
-Probe pasca: 5b/5c → 0. Tes seksi 54 (54-1/54-2/54-3).
+### F1 — TERBUKTI, FIXED (R19.5a: contract arm removed + whole-cast check)
+The cast branch only checked that the RHS starts with `T(`, without ensuring the cast is the entire RHS —
+`T(v).method()` was also counted as a cast. Case 5b `Info memory info = IVault(v).getInfo();` then
+`info.balance` (VALID code, solc passes) → 1 pre-fix; 5c/5d the same; 12b
+`uint256 bal = IERC20(t).balanceOf(a);` shows the set was polluted (Kiro's own probe was invalid —
+the flag there came from the generic `.balanceOf(` rule, not from contamination; the whole-RHS
+side effect still cleans `bal` from the set). Two-layer fix: (1) the contract-type arm
+REMOVED from the cast branch (see F6 — every F1 instance on valid code flowed through that arm);
+(2) the cast must be the entire RHS — jump to the closing `)` (balanced parentheses, new helper
+`matchingParenEnd`) and accept only if the next non-space character is `;`, `,` or `)`.
+Post probe: 5b/5c → 0. Section 54 tests (54-1/54-2/54-3).
 
-### F2 — TERBUKTI, DIPERBAIKI (R19.5a: jalan-mundur lewati whitespace)
-Lookbehind `(?<![\w$.])` hanya melihat satu karakter sebelum nama; spasi antara `.` dan nama member
-lolos. Kasus 7b `s . x = payable(a);` dan 7c `s.` + baris-baru + `x = payable(a);` (keduanya kode
-VALID, solc lolos) → 1 pra-perbaikan. Saran Kiro `(?<!\.\s*)` TIDAK dipakai — variable-length
-lookbehind tidak valid di JavaScript. Perbaikan: saat mengumpulkan evMatches, jalan-mundur dari
-posisi match melewati whitespace; bila karakter non-spasi sebelumnya adalah `.`, match dibuang.
-Probe pasca: 7b/7c → 0 (kasus 7 tanpa spasi sudah 0 sebelumnya). Tes seksi 54 (54-4/54-5/54-6).
+### F2 — TERBUKTI, FIXED (R19.5a: walk-back skips whitespace)
+The lookbehind `(?<![\w$.])` only looks at one character before the name; a space between `.` and the member name
+slips through. Case 7b `s . x = payable(a);` and 7c `s.` + newline + `x = payable(a);` (both
+VALID code, solc passes) → 1 pre-fix. Kiro's suggestion `(?<!\.\s*)` was NOT used — variable-length
+lookbehind is not valid in JavaScript. Fix: when collecting evMatches, walk back from
+the match position past whitespace; if the previous non-space character is `.`, the match is discarded.
+Post probe: 7b/7c → 0 (case 7 without spaces was already 0 before). Section 54 tests (54-4/54-5/54-6).
 
-### F3 — TERBUKTI, DIPERBAIKI (R19.5a: unwrap self-alias diperlebar)
-`castArgIsSelf` hanya meng-unwrap `payable(`/`address(`. Kasus 6d
-`r = payable(address(uint160(address(this))));` (kode VALID, solc lolos) → 1 pra-perbaikan.
-Perbaikan: unwrap max 6 lapis atas {payable, address, uint/int/bytes, tipe kontrak cts/allowlist}
-+ grup `(...)` polos; nama fungsi sembarang (mis. `foo(`) TIDAK di-unwrap — konservatif.
-Probe pasca: 6d → 0; 6a/6b/6c/6e tetap 0. Tes seksi 54 (54-7/54-8).
-Catatan wasit: F3 tidak punya instans kode-valid yang teramati lewat jalur deklarasi
-(`address r;` sudah menangkap `r` duluan) — perbaikannya defense-in-depth atas niat
-terdokumentasi cabang self-check; diverifikasi via probe mekanisme (scaffolding multi-decl).
+### F3 — TERBUKTI, FIXED (R19.5a: self-alias unwrap widened)
+`castArgIsSelf` only unwrapped `payable(`/`address(`. Case 6d
+`r = payable(address(uint160(address(this))));` (VALID code, solc passes) → 1 pre-fix.
+Fix: unwrap at most 6 layers over {payable, address, uint/int/bytes, contract types cts/allowlist}
++ plain `(...)` groups; arbitrary function names (e.g. `foo(`) are NOT unwrapped — conservative.
+Post probe: 6d → 0; 6a/6b/6c/6e stay 0. Section 54 tests (54-7/54-8).
+Referee note: F3 has no observed valid-code instance via the declaration path
+(`address r;` already catches `r` first) — its fix is defence-in-depth over the documented
+intent of the self-check branch; verified via a mechanism probe (multi-decl scaffolding).
 
-### F4 — TERBUKTI dgn KOREKSI formulasi, DIPERBAIKI (R19.5a: bound 4 -> 8)
-Fixpoint berhenti setelah 4 ronde; rantai terbalik dalam kehilangan nama. Formulasi Kiro (kasus 4c
-`x5=x4; ...; x1=payable(a);` → 0) adalah ARTEFAK STUB: di kode asli, `x1` sudah masuk set lewat
-deklarasi (`address x1, ...` — var pertama multi-dekl ditangkap addrRe), jadi rantai kedalaman 5
-sudah 1 pra-perbaikan. Isu batas NYATA: akar rantai yang deklarasinya TERLEWAT (var kedua
-multi-dekl) — rantai kedalaman 5 dan 6 → 0 pra-perbaikan (probe wasit /tmp/probe-f4b.js).
-Perbaikan: bound 4 → 8 iterasi (biaya linear; stress test Kiro: 80.000 tautan 44 ms pada bound 4).
-Probe pasca: kedalaman 5/6 → 1; kedalaman 9 → 0 (batas terdokumentasi). Tes seksi 54 (54-9/54-10/54-11).
+### F4 — TERBUKTI with a FORMULATION CORRECTION, FIXED (R19.5a: bound 4 -> 8)
+The fixpoint stopped after 4 rounds; a reversed chain loses names. Kiro's formulation (case 4c
+`x5=x4; ...; x1=payable(a);` → 0) is a STUB ARTEFACT: in the original code, `x1` already enters the set via
+its declaration (`address x1, ...` — the first var of a multi-declaration is caught by addrRe), so a depth-5 chain
+was already 1 pre-fix. The REAL bound issue: a chain root whose declaration is MISSED (the second var
+of a multi-declaration) — chains of depth 5 and 6 → 0 pre-fix (referee probe /tmp/probe-f4b.js).
+Fix: bound 4 → 8 iterations (linear cost; Kiro's stress test: 80,000 links 44 ms at bound 4).
+Post probe: depth 5/6 → 1; depth 9 → 0 (documented limit). Section 54 tests (54-9/54-10/54-11).
 
-### F5 — TERBUKTI, TIDAK DIPERBAIKI (batas diketahui)
-Ternary `r = cond ? payable(a) : b;` → 0; regex menangkap `cond` sebagai RHS. Kiro sendiri menilai
-"dapat diterima untuk detektor Low". Wasit: FN konservatif (miss, bukan FP); perbaikan butuh
-parsing ternary — di luar scope sesi ini. Didokumentasikan sebagai batas; tes seksi 54 (54-12)
-mengunci perilaku 0.
+### F5 — TERBUKTI, NOT FIXED (known limit)
+Ternary `r = cond ? payable(a) : b;` → 0; the regex captures `cond` as the RHS. Kiro itself rated
+this "acceptable for a Low detector". Referee: a conservative FN (a miss, not an FP); a fix would need
+ternary parsing — out of scope for this session. Documented as a limit; section 54 test (54-12)
+locks in the 0 behaviour.
 
-### F6 — TERBUKTI (solc 0.8.20 lokal), DIPERBAIKI (R19.5a: lengan kontrak dihapus)
-Motivasi R19.5 sebagian besar adalah kode Solidity yang tidak valid — diverifikasi wasit langsung
-dengan solc 0.8.20 (bukan hanya klaim Kiro): (1) multi-deklarasi `address a, b;` → Error
-"Expected ';' but got ','"; (2) `.balance` pada var bertipe kontrak → Error "Member \"balance\"
+### F6 — TERBUKTI (local solc 0.8.20), FIXED (R19.5a: contract arm removed)
+Much of R19.5's motivation was invalid Solidity code — verified by the referee directly
+with solc 0.8.20 (not just Kiro's claim): (1) multi-declaration `address a, b;` → Error
+"Expected ';' but got ','"; (2) `.balance` on a contract-typed var → Error "Member \"balance\"
 not found ... Use \"address(v2).balance\""; (3) `address x = IVault(a);` → Error "Type contract
-IVault is not implicitly convertible to expected type address". Konsekuensi: probe P1/P2 sesi ini
-memakai scaffolding tak-valid; lengan tipe-kontrak dari cabang cast DIHAPUS — pada kode 0.8 valid
-lengan itu hanya bisa men-flag kode tak-valid atau FP (F1); nilai nyata R19.5 pada kode valid
-berasal dari cast `payable`/`address` + assignment polos `x = y` (kasus Kiro 1v/3/4a/4b).
-Tes seksi 53 diperbarui (53-2 kini 0) + 54-13 mengunci `second = IERC20(a)` → 0.
-Catatan wasit: klaim Kiro "kasus 14d jalur deklarasi juga 1" adalah ARTEFAK STUB — di kode asli,
-loop cts hanya mengiterasi tipe yang terdefinisi di file/korpus (allowlist ERC hanya dipakai
-isAddressTypeName, bukan loop cts); `IERC20 r;` tanpa definisi di korpus tetap 0 di mode single-file.
+IVault is not implicitly convertible to expected type address". Consequence: this session's P1/P2 probes
+used invalid scaffolding; the contract-type arm of the cast branch was REMOVED — on valid 0.8 code
+that arm could only flag invalid code or FPs (F1); R19.5's real value on valid code
+comes from the `payable`/`address` casts + plain assignment `x = y` (Kiro cases 1v/3/4a/4b).
+Section 53 tests updated (53-2 now 0) + 54-13 locks in `second = IERC20(a)` → 0.
+Referee note: Kiro's claim "case 14d declaration path also 1" is a STUB ARTEFACT — in the original code,
+the cts loop only iterates types defined in the file/corpus (the ERC allowlist is only used by
+isAddressTypeName, not the cts loop); `IERC20 r;` with no definition in the corpus stays 0 in single-file mode.
 
-## Temuan tambahan wasit selama kalibrasi (bukan dari Kiro)
+## Additional referee findings during calibration (not from Kiro)
 
-- **W1 — chained assignment `a = b = T(...)` menelan taut kedua:** regex `/g` non-overlapping —
-  match `a = b` menelan `b`, taut `b = T(...)` tak pernah terlihat. Perbaikan: rewind
-  `assignEvRe.lastIndex = em.index + 1` di awal tiap iterasi (juga untuk match yang di-skip F2).
-  Tes seksi 54 (54-14).
-- **W2 — cabang plain-assignment butuh terminator:** `x = y` dalam `x = (y == z)` sempat
-  menambah `x` (rhs `y` address-typed, `==` lolos cek negatif). Perbaikan: helper
-  `isRhsTerminator` — terima `;`/`,`/`)`/akhir string, atau `=` tunggal (chained assignment);
-  `==` ditolak. Tes seksi 54 (54-14 + regresi 53-3).
-- **W3 — batas lama D19 (bukan R19.5a):** assignRe `[^;]*` di `detectFullBalanceSweep` menelan
-  statement berikut bila assignment berada di kondisi tanpa `;` sendiri
-  (`if ((r = payable(a)) != ...)` + `bal = r.balance` di luar if → 0). R19.5a sendiri bekerja
-  di jalur itu (amount langsung `r.balance` → 1, tes 54-3). Didokumentasikan; tidak diperbaiki
-  sesi ini (butuh pemisah statement, di luar scope).
+- **W1 — chained assignment `a = b = T(...)` swallows the second link:** the `/g` regex is non-overlapping —
+  the match `a = b` swallows `b`, the link `b = T(...)` is never seen. Fix: rewind
+  `assignEvRe.lastIndex = em.index + 1` at the start of each iteration (also for matches skipped by F2).
+  Section 54 test (54-14).
+- **W2 — the plain-assignment branch needs a terminator:** `x = y` in `x = (y == z)` once
+  added `x` (rhs `y` address-typed, `==` passed the negative check). Fix: helper
+  `isRhsTerminator` — accept `;`/`,`/`)`/end of string, or a single `=` (chained assignment);
+  `==` is rejected. Section 54 tests (54-14 + regression 53-3).
+- **W3 — an old D19 limit (not R19.5a):** assignRe `[^;]*` in `detectFullBalanceSweep` swallows
+  the following statement if the assignment sits in a condition with no `;` of its own
+  (`if ((r = payable(a)) != ...)` + `bal = r.balance` outside the if → 0). R19.5a itself works
+  on that path (direct amount `r.balance` → 1, test 54-3). Documented; not fixed
+  this session (needs a statement separator, out of scope).
 
-## Hasil akhir
+## Final result
 
-- **Test 694/694 PASS** (680 lama + 14 baru seksi 54; 53-2 diubah ekspektasi 1 → 0).
-- **Hunting re-run 6 permukaan pasca-R19.5a: IDENTIK** — Fulcrom 15, Amply 18, RAAC 14,
-  Hyperbridge 7, Flow 0, Veno 2; 0 kandidat baru.
-- **Kredit Kiro sesi ini: 2,76** (311,96 → **314,72/4.000**; sisa 3.685,28, 44 hari → tempo ≈44/hari
-  sejak 12 Nov — di bawah garis 82/hari, aman). Model Opus 5.5, tanpa flag MODEL_TIDAK_SESUAI.
-- **Backlog detektor tetap KOSONG; residual tersisa:** F10 one-hop, F5/F6 taint, F11 label-per-target,
-  `encodeWithSelector` transferFrom 4-arg, F8 swap-output rename + batas baru R19.5a (F5 ternary,
-  rantai terbalik >8, assignRe-menelan di kondisi, `x = T(addr)` dgn T di luar korpus/allowlist)
-  + catatan Kiro SP1Beefy headers=[] (pertanyaan terbuka sesi BB).
+- **Tests 694/694 PASS** (680 old + 14 new section 54; 53-2 expectation changed 1 → 0).
+- **Hunting re-run on 6 surfaces post-R19.5a: IDENTICAL** — Fulcrom 15, Amply 18, RAAC 14,
+  Hyperbridge 7, Flow 0, Veno 2; 0 new candidates.
+- **Kiro credits this session: 2.76** (311.96 → **314.72/4,000**; remaining 3,685.28, 44 days → pace ≈44/day
+  since 12 Nov — below the 82/day line, safe). Model Opus 5.5, no MODEL_TIDAK_SESUAI flag.
+- **Detector backlog stays EMPTY; remaining residuals:** F10 one-hop, F5/F6 taint, F11 per-target label,
+  `encodeWithSelector` transferFrom 4-arg, F8 swap-output rename + the new R19.5a limits (F5 ternary,
+  reversed chain >8, assignRe swallowing in conditions, `x = T(addr)` with T outside the corpus/allowlist)
+  + Kiro's note SP1Beefy headers=[] (an open question from the BB session).

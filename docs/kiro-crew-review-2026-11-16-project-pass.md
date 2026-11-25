@@ -1,148 +1,147 @@
-# Review silang Kiro — project-pass lintas-file (v1)
+# Kiro cross-review — cross-file project-pass (v1)
 
-- **Tanggal:** 16 Nov 2026, 08:52–09:39 WIB (browser task, 46 mnt)
-- **Model:** Claude Opus 5.5 (review utama) — **BEPINDAH ke Opus 4.8 di tengah sesi**
-  (saat minta kirim ulang v2: "Claude Opus 5.5 refused; answered by Claude
-  Opus 4.8, now this conversation's model"). Fragmen F1–F112 ditulis Opus 4.8
-  (hanya penyalinan ulang). **Sesi Kiro kini bermodel Opus 4.8 — pass
-  berikut WAJIB pilih ulang Opus 5.5 manual atau mulai sesi baru.**
-- **Sesi Kiro:** 9bf915c9-a01e-4675-a9bb-b92f0a1c418a ("Audit Bug Bounty Kontrak
-  Solidity") — dilanjutkan, tidak perlu chat baru.
-- **Metode:** kode project-pass ditempel verbatim (repo GitHub main TIDAK
-  berisi kode ini — hanya repo lokal; push branch dijeda atas penolakan
-  Toufik). Kiro mereview dari tempelan + replika fungsi di sandbox-nya
-  (dengan jaringan: clone contoh GMX v2).
-- **Kredit:** dashboard 76,74 → **103,4/4.000 (delta 26,66)**; sisa 3.896,6,
-  47 hari → tempo ≈82,9/hari (pas garis). Rincian per pesan Kiro: review
-  utama 15,66; kirim ulang 14 bagian 2,62; fragmen F1–F112 2,46 (total
-  perkiraan 20,74; selisih ~5,92 tak dijelaskan — kemungkinan percobaan
-  model yang ditolak / pembulatan).
-- **Aturan read-only dipatuhi:** repo tidak diubah, folder scratch dihapus.
+- **Date:** 16 Nov 2026, 08:52–09:39 WIB (browser task, 46 min)
+- **Model:** Claude Opus 5.5 (main review) — **SWITCHED to Opus 4.8 mid-session**
+  (when asked to resend v2: "Claude Opus 5.5 refused; answered by Claude
+  Opus 4.8, now this conversation's model"). Fragments F1–F112 were written by Opus 4.8
+  (copying only). **The Kiro session is now on Opus 4.8 — the next pass
+  MUST manually re-select Opus 5.5 or start a new session.**
+- **Kiro session:** 9bf915c9-a01e-4675-a9bb-b92f0a1c418a ("Audit Bug Bounty Kontrak
+  Solidity") — continued, no new chat needed.
+- **Method:** the project-pass code was pasted verbatim (the GitHub main repo does NOT
+  contain this code — only the local repo; the branch push was paused on Toufik's
+  refusal). Kiro reviewed from the paste + function replicas in its sandbox
+  (with network access: cloned the GMX v2 example).
+- **Credits:** dashboard 76.74 → **103.4/4,000 (delta 26.66)**; remaining 3,896.6,
+  47 days → pace ≈82.9/day (right on the line). Breakdown per Kiro message: main
+  review 15.66; resend of 14 parts 2.62; fragments F1–F112 2.46 (total
+  estimate 20.74; difference ~5.92 unexplained — possibly a rejected model
+  attempt / rounding).
+- **Read-only rule obeyed:** the repo was not changed, the scratch folder was deleted.
 
-## Vonis Kiro (Opus 5.5)
+## Kiro's verdict (Opus 5.5)
 
-| | v1 | v2 prototipe Kiro |
+| | v1 | Kiro's v2 prototype |
 |---|---|---|
-| Kasus adversarial | 33 | 33 |
-| Benar | **9/33** | **33/33** |
-| Per kategori v1 | Getter 6/16; Inheritance 0/7; Mock/test 3/4; Dedupe 0/3; Sort 0/2; Non-dead-config 0/1 | — |
+| Adversarial cases | 33 | 33 |
+| Correct | **9/33** | **33/33** |
+| Per category v1 | Getter 6/16; Inheritance 0/7; Mock/test 3/4; Dedupe 0/3; Sort 0/2; Non-dead-config 0/1 | — |
 
-Validasi GMX v2 (26 file, 23 kandidat, 25 kasus uji): v2 benar 25/25;
-v1 benar 9/25. Akar masalah menurut Kiro: "project-pass membaca kontrak
-penerima, bukan pemilik."
+GMX v2 validation (26 files, 23 candidates, 25 test cases): v2 correct 25/25;
+v1 correct 9/25. Root cause according to Kiro: "project-pass reads the receiving
+contract, not the owner."
 
-## Daftar perubahan v2 Kiro (P1–P10, dari laporan browser)
+## List of Kiro's v2 changes (P1–P10, from the browser report)
 
-- **P1.** Pisahkan indeks pemilik dari indeks penerima: pemilik diindeks dari
-  lokasi kandidat, penerima diindeks dari seluruh file proyek. (v1 mencampur
-  keduanya — kontrak penerima dibaca sebagai pemilik.)
-- **P2.** `ppResolveImport`: selesaikan import relatif (`./`, `../`, `@/`)
-  menjadi path kanonik. (v1 memakai nama file mentah.)
-- **P3.** `ppIsTestFile`: abaikan file test/mock (`test/`, `mocks/`, `.t.sol`,
-  `Mock*`, `Harness*`). (v1 menghitung read di file test sebagai bukti.)
-- **P4.** `ppClassify`: bedakan read/write di dalam fungsi (`x = treasury()`
-  adalah read, `treasury() = x` adalah write). (v1 menghitung semua
-  kemunculan sebagai read.)
-- **P5.** `ppShadowRanges`: deteksi shadowing oleh parameter/lokal di dalam
-  fungsi. (v1 menghitung read di fungsi yang men-shadow var sebagai read.)
-- **P6.** `ppCallables`: deteksi pemanggilan fungsi yang mengembalikan var
-  (mis. `treasury()` di dalam `getTreasury()`).
-- **P7.** `ppParseImports`: parsing import dan alias
+- **P1.** Separate the owner index from the receiver index: owners are indexed from
+  candidate locations, receivers are indexed from all project files. (v1 mixed
+  the two — the receiving contract was read as the owner.)
+- **P2.** `ppResolveImport`: resolve relative imports (`./`, `../`, `@/`)
+  into canonical paths. (v1 used raw file names.)
+- **P3.** `ppIsTestFile`: ignore test/mock files (`test/`, `mocks/`, `.t.sol`,
+  `Mock*`, `Harness*`). (v1 counted reads in test files as evidence.)
+- **P4.** `ppClassify`: distinguish read/write inside a function (`x = treasury()`
+  is a read, `treasury() = x` is a write). (v1 counted every
+  occurrence as a read.)
+- **P5.** `ppShadowRanges`: detect shadowing by a parameter/local inside
+  a function. (v1 counted reads in a function that shadows the var as reads.)
+- **P6.** `ppCallables`: detect calls to a function that returns the var
+  (e.g. `treasury()` inside `getTreasury()`).
+- **P7.** `ppParseImports`: parse imports and aliases
   (`import { Config as Cfg } from "./Config.sol"`).
-- **P8.** `ppAncestors`/`ppDescendants`: graf inheritance lengkap (bukan
-  hanya parents langsung). (v1 hanya memeriksa parents langsung.)
-- **P9.** `ppBaseType`/`ppTypeOfId`/`ppReceiverType`: selesaikan tipe receiver
-  (mis. `cfg` bertipe `Config` atau `IConfig`). (v1 memakai nama variabel
-  sebagai tipe.)
-- **P10.** `ppDecls`: deklarasi var di dalam fungsi (mis.
+- **P8.** `ppAncestors`/`ppDescendants`: a complete inheritance graph (not
+  just direct parents). (v1 only checked direct parents.)
+- **P9.** `ppBaseType`/`ppTypeOfId`/`ppReceiverType`: resolve the receiver type
+  (e.g. `cfg` typed `Config` or `IConfig`). (v1 used the variable name
+  as the type.)
+- **P10.** `ppDecls`: var declarations inside a function (e.g.
   `uint treasury = ...`).
 
-Temuan tambahan Kiro — bug sort: `candidates.sort((a, b) =>
+Additional Kiro finding — sort bug: `candidates.sort((a, b) =>
 rank[a.severityGuess] - rank[b.severityGuess])` — `rank[undefined]` = NaN
-bila kandidat tanpa `severityGuess`; v2 memakai `ppRank` (default 2).
+if a candidate has no `severityGuess`; v2 uses `ppRank` (default 2).
 
-## Kode v2 verbatim — TIDAK BERHASIL DIPULIHKAN
+## The v2 verbatim code — COULD NOT BE RECOVERED
 
-Browser tidak bisa menempelkan blok kode panjang ke laporan (tampilan
-memotong tiap blok; Ctrl+V tidak didukung). Artefak PDF yang dilampirkan
-browser ternyata HANYA tangkapan layar sebagian halaman sesi (fragmen
-F82–F84) — bukan kode lengkap, jadi tidak bisa dipakai sebagai sumber
-salinan. Penyalinan ulang lewat screenshot TIDAK dilanjutkan (keputusan
-jack: mahal + rawan OCR; nilai v2 ada pada idenya, P1–P10, yang sudah
-tercatat di atas). **v2 TIDAK diadopsi utuh** — diwujudkan ulang secara
-lokal hanya untuk celah yang terverifikasi (lihat "Kalibrasi jack").
+The browser could not paste long code blocks into the report (the display
+truncates each block; Ctrl+V is not supported). The PDF artefact attached by
+the browser turned out to be ONLY a partial screenshot of the session page (fragments
+F82–F84) — not the complete code, so it cannot be used as a copy
+source. Copying via screenshots was NOT continued (jack's decision: expensive + OCR-prone; v2's value lies in its ideas, P1–P10, which are already
+recorded above). **v2 was NOT adopted wholesale** — it was re-implemented
+locally only for the verified gaps (see "Jack's calibration").
 
-## Analisis wasit jack — vonis 9/33 TIDAK bisa ditelan mentah
+## Referee jack's analysis — the 9/33 verdict can NOT be swallowed raw
 
-1. **Kiro menguji REPLIKA, bukan kode asli.** Tempelan hanya berisi 4
-   fungsi project-pass; helper (`contractSpans`, `scanStateVarDecls`,
-   `enclosingFunctionAt`, `hasParamNamed`, dst.) TIDAK ditempel — Kiro
-   menulis ulang dari kira-kira. Perilaku replika bisa menyimpang dari
-   v1 asli. Contoh: klaim "Inheritance 0/7 — v1 tidak mengenali
-   inheritance" BERTENTANGAN dengan tes lokal seksi 20 (turunan langsung
-   membaca `baseFee` → HILANG, lolos di v1 asli). Yang benar: v1 hanya
-   memeriksa parents LANGSUNG (cucu terlewat — P8, terbukti di bawah).
-2. **Hitungan Kiro tidak konsisten.** 11 FP + 12 FN + 1 tidak dihitung =
-   24, bukan 33; daftar rinci FP memuat butir yang Kiro sendiri labeli
-   BUKAN FP (FP2, FP4) sehingga rinciannya melebihi 11. Skor per
-   kategori (6+0+3+0+0+0 = 9) cocok dengan total, tapi rincian FP/FN
-   tidak bisa direkonsiliasi — pakai sebagai sinyal, bukan ground truth.
-3. **"Non-dead-config 0/1" BUKAN kegagalan.** `applyProjectPass` SENGAJA
-   hanya memproses kandidat `dead-config-storage`; kandidat lain
-   dipertahankan by-design. Kiro mengharapkan perilaku yang salah.
-4. **"Dedupe 0/3" BERTENTANGAN dengan kode.** `runProjectPipeline`
-   mendupe kandidat gabungan (kunci detector+file+fungsi+varName) —
-   klaim "v1 tidak mengabaikan duplikat" tidak sesuai dengan kode yang
-   ditempel. Kemungkinan Kiro menguji duplikat yang kuncinya memang
-   berbeda (mis. var sama dari dua writer fn berbeda — itu dua kandidat
-   berbeda, bukan duplikat).
-5. **"Baris salah hitung" TIDAK terbukti pada v1 asli.** Verifikasi jack:
-   bukti dropped `VaultUtils.sol:113 (getter)` untuk `maxLeverage`
-   dicek ke file nyata — baris 113 persis
-   `if (remainingCollateral * _vault.maxLeverage() < ...)` (baris 152
-   juga cocok). Penomoran baris v1 BENAR; klaim Kiro ini artefak replika.
-6. **Bug sort TIDAK bisa terpicu lewat jalur nyata.** `normalizeCandidate`
-   selalu mengisi `severityGuess` (default `"Low"`), jadi `rank[undefined]`
-   tidak pernah terjadi via `runPipeline`/`runProjectPipeline`. Tidak
-   diperbaiki (perubahan tanpa tes = noise); dicatat di sini saja.
+1. **Kiro tested a REPLICA, not the original code.** The paste contained only 4
+   project-pass functions; the helpers (`contractSpans`, `scanStateVarDecls`,
+   `enclosingFunctionAt`, `hasParamNamed`, etc.) were NOT pasted — Kiro
+   rewrote them from guesswork. Replica behaviour can deviate from
+   the original v1. Example: the claim "Inheritance 0/7 — v1 does not recognise
+   inheritance" CONTRADICTS local test section 20 (a direct descendant
+   reading `baseFee` → DISAPPEARS, passes on the original v1). The truth: v1 only
+   checks DIRECT parents (grandchildren are missed — P8, proven below).
+2. **Kiro's counts are inconsistent.** 11 FP + 12 FN + 1 uncounted =
+   24, not 33; the detailed FP list contains items Kiro itself labels
+   NOT FP (FP2, FP4) so the detail exceeds 11. The per-category scores
+   (6+0+3+0+0+0 = 9) match the total, but the FP/FN detail
+   cannot be reconciled — use it as a signal, not ground truth.
+3. **"Non-dead-config 0/1" is NOT a failure.** `applyProjectPass` DELIBERATELY
+   only processes `dead-config-storage` candidates; other candidates
+   are retained by design. Kiro expected the wrong behaviour.
+4. **"Dedupe 0/3" CONTRADICTS the code.** `runProjectPipeline`
+   dedupes combined candidates (key detector+file+function+varName) —
+   the claim "v1 does not ignore duplicates" does not match the code that
+   was pasted. Kiro likely tested duplicates whose keys genuinely
+   differ (e.g. the same var from two different writer functions — those are two different
+   candidates, not duplicates).
+5. **"Wrong line count" NOT proven on the original v1.** Jack's verification:
+   the dropped evidence `VaultUtils.sol:113 (getter)` for `maxLeverage`
+   was checked against the real file — line 113 is exactly
+   `if (remainingCollateral * _vault.maxLeverage() < ...)` (line 152
+   also matches). v1's line numbering is CORRECT; this Kiro claim is a replica artefact.
+6. **The sort bug CANNOT be triggered via a real path.** `normalizeCandidate`
+   always fills `severityGuess` (default `"Low"`), so `rank[undefined]`
+   never occurs via `runPipeline`/`runProjectPipeline`. Not
+   fixed (a change without a test = noise); just noted here.
 
-## Kalibrasi jack (diterapkan sesi ini — hanya celah TERBUKTI)
+## Jack's calibration (applied this session — only PROVEN gaps)
 
-Tiap celah ditulis sebagai tes dulu (seksi 22), dibuktikan GAGAL di v1,
-lalu diperbaiki. Hasil: **5/7 tes baru gagal di v1; sesudah perbaikan
-test 238/238 PASS** (230 lama + 8 baru).
+Each gap was written as a test first (section 22), proven to FAIL on v1,
+then fixed. Result: **5/7 new tests failed on v1; after the fix
+tests 238/238 PASS** (230 old + 8 new).
 
-- **P3 — file test/mock bukan bukti (TERBUKTI, 2 tes gagal di v1):**
-  `findCrossFileReads` kini melewati file test/mock
-  (`isTestOrMockFile`, pola sama dengan detektor). Kontrol: baca di file
-  biasa tetap menghapus kandidat.
-- **P8 — inheritance transitif (TERBUKTI, 2 tes gagal di v1):**
-  `ancestorChain` (BFS atas `contractsByName`) menggantikan cek
-  `parents.includes` langsung; cucu/cicit ikut dihitung, dan shadowing
-  diperiksa di SELURUH rantai (perantara yang mendeklarasi ulang var
-  senama → baca merujuk ke var perantara, kandidat TETAP — tes 22b2).
-- **P1-owner — resolusi pemilik via declLine (TERBUKTI, 1 tes gagal di v1):**
-  `applyProjectPass` kini memin pemilik lewat `declLine` kandidat
-  (var + baris deklarasi), bukan find pertama berdasarkan nama saja.
-  Kasus: dua kontrak satu file mendeklarasi var senama, hanya satu yang
-  dibaca — dulu keduanya terhapus, kini hanya yang dibaca.
-- **P2, P4–P7, P9, P10 — BELUM dikerjakan** (butuh kasus uji lokal yang
-  membuktikan celahnya pada kode asli; P2 gerbang relevansi sudah memakai
-  basename sehingga `../` vs `./` tidak membedakan; P9 sudah tercakup
-  sebagian oleh `typedIdRe` yang hanya menerima id bertipe pemilik).
-- **Hunting re-run pasca-kalibrasi: IDENTIK** — Fulcrom 30 mentah → 15
+- **P3 — test/mock files are not evidence (TERBUKTI, 2 tests failed on v1):**
+  `findCrossFileReads` now skips test/mock files
+  (`isTestOrMockFile`, the same pattern as the detector). Control: a read in an ordinary
+  file still removes the candidate.
+- **P8 — transitive inheritance (TERBUKTI, 2 tests failed on v1):**
+  `ancestorChain` (BFS over `contractsByName`) replaces the direct
+  `parents.includes` check; grandchildren/great-grandchildren are counted, and shadowing
+  is checked across the ENTIRE chain (an intermediary that redeclares a var of the
+  same name → the read refers to the intermediary's var, the candidate REMAINS — test 22b2).
+- **P1-owner — owner resolution via declLine (TERBUKTI, 1 test failed on v1):**
+  `applyProjectPass` now pins the owner via the candidate's `declLine`
+  (var + declaration line), not the first find by name alone.
+  Case: two contracts in one file declare a var of the same name, only one is
+  read — previously both were removed, now only the one that is read.
+- **P2, P4–P7, P9, P10 — NOT yet done** (they need a local test case that
+  proves the gap on the original code; the P2 relevance gate already uses
+  the basename so `../` vs `./` makes no difference; P9 is already partly covered
+  by `typedIdRe`, which only accepts ids typed as the owner).
+- **Post-calibration hunting re-run: IDENTICAL** — Fulcrom 30 raw → 15
   dropped → **15 final**; Amply **18**; RAAC **14**; Hyperbridge 3 → 1
-  dropped → **2**; Flow **0**. 0 kandidat baru; recall vs Kiro AMP tetap
-  4/7. (Tidak ada file test yang diumpankan runner; tidak ada baca cucu
-  di korpus ini; tidak ada tabrakan var senama di kandidat yang
-  ter-flag — jadi kalibrasi tidak mengubah hasil hunting saat ini, tapi
-  menutup celah untuk korpus berikut.)
+  dropped → **2**; Flow **0**. 0 new candidates; recall vs Kiro AMP still
+  4/7. (No test files were fed to the runner; there are no grandchild reads
+  in this corpus; there are no same-name var collisions in the flagged
+  candidates — so the calibration does not change current hunting results, but
+  closes the gaps for the next corpus.)
 
-## Langkah berikut
+## Next steps
 
-- Kalibrasi P2/P4–P7/P9/P10 bila ada kasus uji lokal yang membuktikan
-  celahnya (jangan adopsi buta dari daftar Kiro).
-- Pass Kiro berikut: pilih ulang Opus 5.5 manual (sesi kini Opus 4.8);
-  tempel JUGA helper yang dirujuk bila review menyangkut mereka, supaya
-  Kiro menguji kode asli bukan replika.
-- M2 tetap: 17 detektor, ground truth 20 kandidat, test 238/238.
+- Calibrate P2/P4–P7/P9/P10 if there is a local test case that proves
+  the gap (do not blindly adopt from Kiro's list).
+- Next Kiro pass: manually re-select Opus 5.5 (the session is now Opus 4.8);
+  ALSO paste the referenced helpers when a review concerns them, so
+  Kiro tests the original code, not a replica.
+- M2 unchanged: 17 detectors, ground truth 20 candidates, tests 238/238.

@@ -1,132 +1,132 @@
-# Review Kiro crew atas kalibrasi R20.3 / R20.3a (D20 swap-output)
+# Kiro crew review of the R20.3 / R20.3a calibration (D20 swap-output)
 
-Sesi Frankenstein #46 (lanjutan), 21 Nov 2026. Pass Kiro: browser task
-d6ab4fa5, sesi baru "Audit R20.3 swap-output D20"
+Frankenstein session #46 (continued), 21 Nov 2026. Kiro pass: browser task
+d6ab4fa5, new session "Audit R20.3 swap-output D20"
 (https://app.kiro.dev/session/f443d373-c1c6-43bd-8e48-1bad54678fa6),
-**Opus 5.5 eksplisit tanpa penolakan — tanpa flag MODEL_TIDAK_SESUAI**,
-Autonomous OFF, 2m 8s, footer 2,12 kredit. Dashboard awal pass:
-363,45/4.000 (tidak berubah sejak 20 Nov 20:40 WIB); total sesudah pass
-(dari footer, tidak dibaca ulang dashboard): 365,57/4.000, sisa 3.634,43.
+**Opus 5.5 explicit with no refusal — no MODEL_TIDAK_SESUAI flag**,
+Autonomous OFF, 2m 8s, footer 2.12 credits. Dashboard at the start of the pass:
+363.45/4,000 (unchanged since 20 Nov 20:40 WIB); total after the pass
+(from the footer, dashboard not re-read): 365.57/4,000, remaining 3,634.43.
 
-## Konteks
+## Context
 
-R20.3 (sesi #46 blok 1, wasit lokal): D20 `permissionless-value-send`
-mengenali swap-output sebagai dana caller — syarat (i) pull dari
-msg.sender / msg.value di badan, (ii) nilai ditugaskan dari panggilan
-swap (c1) atau dari `abi.decode` atas hasil multicall swap (c2). Kasus
-pemicu: `UniV3UniswapV2Wrapper.swapExactTokensForETH` (FA-002
-Hyperbridge, Medium, gugur wasit sesi #26).
+R20.3 (session #46 block 1, local referee): D20 `permissionless-value-send`
+recognizes swap output as the caller's funds — condition (i) a pull from
+msg.sender / msg.value in the body, (ii) the value is assigned from a
+swap call (c1) or from `abi.decode` over a swap multicall result (c2). Triggering
+case: `UniV3UniswapV2Wrapper.swapExactTokensForETH` (FA-002
+Hyperbridge, Medium, rejected by the referee in session #26).
 
-## Hasil harness Kiro: 7/20 lolos, vonis NEEDS WORK (F1–F7)
+## Kiro harness result: 7/20 passed, verdict NEEDS WORK (F1–F7)
 
-Kasus wasit: P1 THROW, P2/P3 lolos, N1/N2/N3/N5 lolos, N4 THROW.
-Adversarial Kiro A1–A12: lolos hanya A4/A5 (A4 = batas F7 yang sudah
-didokumentasikan).
+Referee cases: P1 THROW, P2/P3 passed, N1/N2/N3/N5 passed, N4 THROW.
+Kiro adversarial A1–A12: only A4/A5 passed (A4 = the F7 boundary that was already
+documented).
 
-## Disposisi wasit (probe ke kode ASLI, /tmp/probe-d20-r203a.js)
+## Referee disposition (probe against the ORIGINAL code, /tmp/probe-d20-r203a.js)
 
-### F1 — DITOLAK sebagai artefak transport (KRITIS menurut Kiro, BUKAN bug)
+### F1 — REJECTED as a transport artifact (CRITICAL according to Kiro, NOT a bug)
 
-Klaim Kiro: `decRe` tidak bisa dikonstruksi (`\w` → `w`, `\[` → `[`,
-kelas karakter tak tertutup) sehingga c2 selalu melempar SyntaxError dan
-P1 tidak pernah ter-suppress.
+Kiro's claim: `decRe` cannot be constructed (`\w` → `w`, `\[` → `[`,
+unclosed character class) so c2 always throws a SyntaxError and
+P1 is never suppressed.
 
-Verifikasi wasit: **SALAH untuk kode asli.** Byte mentah file
-(`app/pipeline.js` baris decRe): semua run backslash panjang 2 —
-string RegExp escape-nya benar. Probe lokal: P1 → 0 via c2 tanpa
-throw; suite 851/851 lolos sebelum R20.3a. Yang rusak adalah SALINAN
-yang diterima Kiro — backslash terpotong separuh di suatu titik
-transport tugas browser → Kiro (pelajaran: tempelan kode ke Kiro
-rentan halving backslash; verifikasi wasit WAJIB dari file asli, dan
-harness Kiro yang crash = sinyal artefak, bukan vonis).
+Referee verification: **WRONG for the original code.** The raw bytes of the file
+(`app/pipeline.js`, the decRe line): every backslash run is length 2 —
+the RegExp string escaping is correct. Local probe: P1 → 0 via c2 without
+throwing; the suite passed 851/851 before R20.3a. What was corrupted was the COPY
+Kiro received — backslashes were halved somewhere in the
+browser task → Kiro transport path (lesson: code pasted into Kiro
+is prone to backslash halving; referee verification MUST use the original file, and
+a crashing Kiro harness = an artifact signal, not a verdict).
 
-Konsekuensi: semua hasil THROW Kiro (P1, N4, A3, A7, A12) tidak
-berlaku; A8 dievaluasi Kiro pada salinan /tmp yang escape-nya
-diperbaiki — temuan itu tetap diuji ulang wasit (lihat F5).
+Consequence: all of Kiro's THROW results (P1, N4, A3, A7, A12) do not
+apply; A8 was evaluated by Kiro on a /tmp copy with the escaping
+fixed — that finding is still re-tested by the referee (see F5).
 
 ### F2 — TERBUKTI (A1, A9)
 
-Syarat (i) diperiksa di level body: `require(msg.value == FEE)` (A1)
-dan `transferFrom(msg.sender, treasury, 1)` (A9) ikut memenuhi.
-Perbaikan R20.3a: (i) kini mensyaratkan pull KE `address(this)`
-dengan jumlah berupa identifier yang dipakai lagi di badan, DAN pull
-harus mendahului penugasan swap; cabang `msg.value` telanjang DIHAPUS
-(output swap ETH butuh input token, bukan msg.value). Probe pasca:
-A1/A9 → 1 (ter-flag). Batas sisa: pull jumlah kecil ke address(this)
-dengan identifier yang dipakai ulang sebagai input swap lain masih
-lolos — butuh pelacakan aliran dana penuh (ranah taint, di luar
-skop pola ini).
+Condition (i) was checked at body level: `require(msg.value == FEE)` (A1)
+and `transferFrom(msg.sender, treasury, 1)` (A9) also satisfied it.
+R20.3a fix: (i) now requires a pull TO `address(this)`
+with an amount that is an identifier reused in the body, AND the pull
+must precede the swap assignment; the bare `msg.value` branch was REMOVED
+(ETH swap output needs token input, not msg.value). Post-fix probe:
+A1/A9 → 1 (flagged). Remaining boundary: a small-amount pull to address(this)
+with an identifier reused as another swap's input still
+passes — that needs full fund-flow tracking (taint territory, outside
+the scope of this pattern).
 
 ### F3 — TERBUKTI (A2, A11)
 
-Penanda swap c1 terlalu longgar (`[\w$.]*(?:swap|...)`, flag `i`):
-`quoter.quoteExactInputSingle(` (A2) dan `viewer.previewSwap(` (A11)
-lolos sebagai output swap. Perbaikan R20.3a: segmen callee terakhir
-harus DIAWALI `swap`/`exactInput`/`exactOutput` (case-sensitive,
-didahului `^`/spasi/`.`/`(`). Probe pasca: A2/A11 → 1.
+The c1 swap marker was too loose (`[\w$.]*(?:swap|...)`, flag `i`):
+`quoter.quoteExactInputSingle(` (A2) and `viewer.previewSwap(` (A11)
+passed as swap output. R20.3a fix: the last callee segment
+must START with `swap`/`exactInput`/`exactOutput` (case-sensitive,
+preceded by `^`/space/`.`/`(`). Post-fix probe: A2/A11 → 1.
 
 ### F4 — TERBUKTI (A6, A10)
 
-c1 hanya melihat penugasan pertama; `amountOut = address(this).balance`
-sesudah swap (A6) diabaikan, dan `cache.amountOut = router.swap(...)`
-(A10) dibaca sebagai penugasan lokal (batas `\b` sesudah titik).
-Perbaikan R20.3a: semua penugasan V sebelum kirim dikumpulkan,
-penugasan member (karakter sebelum `V` adalah `.`) dilewati, yang
-dipakai = TERAKHIR; `isCallerFunded` kini menerima `beforeIdx`
-(posisi kirim) sehingga penugasan sesudah kirim tak dihitung. Probe
-pasca: A6/A10 → 1.
+c1 only looked at the first assignment; `amountOut = address(this).balance`
+after the swap (A6) was ignored, and `cache.amountOut = router.swap(...)`
+(A10) was read as a local assignment (the `\b` boundary after the dot).
+R20.3a fix: all assignments to V before the send are collected,
+member assignments (the character before `V` is `.`) are skipped, the one
+used = the LAST; `isCallerFunded` now takes `beforeIdx`
+(the send position) so assignments after the send are not counted. Post-fix
+probe: A6/A10 → 1.
 
 ### F5 — TERBUKTI (A8)
 
-c2 tidak mengaitkan penanda swap / target multicall dengan swap yang
-sebenarnya: multicall ke oracle + selector swap di variabel tak
-terpakai ikut ter-suppress (Kiro membuktikan ini pada salinan
-escape-fixed; wasit mereproduksi di kode asli: A8 → suppressed).
-Perbaikan R20.3a: receiver multicall harus mengandung `swap`/`router`
-(`IMulticallExtended(_params.swapRouter)` lolos, `IOracle(oracle)`
-tidak). Probe pasca: A8 → 1. Batas sisa: penanda swap di variabel tak
-terpakai + multicall ke swapRouter untuk data non-swap masih lolos —
-butuh ikatan variabel data (didokumentasikan, tidak dikerjakan sesi
-ini).
+c2 did not tie the swap marker / multicall target to an actual
+swap: a multicall to an oracle + a swap selector in an unused
+variable was also suppressed (Kiro proved this on the
+escape-fixed copy; the referee reproduced it on the original code: A8 → suppressed).
+R20.3a fix: the multicall receiver must contain `swap`/`router`
+(`IMulticallExtended(_params.swapRouter)` passes, `IOracle(oracle)`
+does not). Post-fix probe: A8 → 1. Remaining boundary: a swap marker in an unused
+variable + a multicall to swapRouter for non-swap data still passes —
+that needs data-variable binding (documented, not worked on this
+session).
 
-### F6 — TERBUKTI (cabang lama (b), di luar skop R20.3)
+### F6 — TERBUKTI (old branch (b), outside the R20.3 scope)
 
-`pullRe` menyamakan token ERC20 dengan ETH: pull token junk lalu
-kirim ETH jumlah sama ikut ter-suppress. Perbaikan R20.3a: (b) kini
-mensyaratkan token yang ditarik WETH-ish (receiver mengandung `weth`,
-dibaca jalan-mundur dari titik `.transferFrom` — hindari regex
-paren-bersarang untuk `IERC20(WETH())`) ATAU badan memuat
-`.withdraw(`. Probe pasca: F6 → 1; kontrol Gnosis (pull WETH +
-withdraw) → 0. Pelajaran implementasi: percobaan pertama memakai
-grup receiver regex dengan paren bersarang — pola itu gagal total
-(`[^)]*` tak menangani `IERC20(WETH())`, 2 level) dan sempat
-merusak suite (regresi 40e); diganti jalan-mundur karakter — lebih
-sederhana dan benar.
+`pullRe` treated ERC20 tokens as equivalent to ETH: pulling a junk token and then
+sending the same amount of ETH was also suppressed. R20.3a fix: (b) now
+requires the pulled token to be WETH-ish (the receiver contains `weth`,
+read backwards from the `.transferFrom` dot — avoiding a nested-paren
+regex for `IERC20(WETH())`) OR the body contains
+`.withdraw(`. Post-fix probe: F6 → 1; Gnosis control (pull WETH +
+withdraw) → 0. Implementation lesson: the first attempt used
+a receiver regex group with nested parens — that pattern failed completely
+(`[^)]*` does not handle `IERC20(WETH())`, 2 levels) and briefly
+broke the suite (regression 40e); it was replaced with a backwards character walk — simpler
+and correct.
 
-### F7 — batas yang sudah didokumentasikan, DIPERBAIKI (A4)
+### F7 — an already-documented boundary, FIXED (A4)
 
-`amounts[1]` (indeks) ditolak di awal `isCallerFunded`. Perbaikan
-R20.3a: nilai bentuk `IDENT[...]` diuji via basisnya untuk c1/c2
-(tidak memakai (b)). Probe pasca: A4 → 0; tes 61-9 diperbarui
-(1 → 0). Batas sisa: tuple-destructure `(a, b) = swap(...)` belum
-dikenali.
+`amounts[1]` (indexed) was rejected early in `isCallerFunded`. R20.3a
+fix: values of the form `IDENT[...]` are tested via their base for c1/c2
+(not using (b)). Post-fix probe: A4 → 0; test 61-9 updated
+(1 → 0). Remaining boundary: tuple destructuring `(a, b) = swap(...)` is not yet
+recognized.
 
-## Hasil akhir
+## Final result
 
-- Probe wasit pasca-R20.3a: **14/14** (A1–A12 + F6 + F6-kontrol).
-- Suite: **851 → 862/862 PASS** (Seksi 61 diperbarui + Seksi 62 baru,
-  11 tes). Verifikasi negatif: tepat 9 tes gagal di kode pra-R20.3a
+- Referee probe after R20.3a: **14/14** (A1–A12 + F6 + F6 control).
+- Suite: **851 → 862/862 PASS** (Section 61 updated + new Section 62,
+  11 tests). Negative verification: exactly 9 tests fail on the pre-R20.3a code
   (61-9 + 62-1/62-2/62-4/62-5/62-6/62-7/62-8/62-10).
-- Hunting re-run 9 permukaan pasca-R20.3a: (lihat STATUS.md sesi #46
-  lanjutan).
+- Hunting re-run on 9 surfaces after R20.3a: (see STATUS.md session #46
+  continued).
 
-## Batas yang diketahui (R20.3a)
+## Known boundaries (R20.3a)
 
-- Ikatan data multicall c2 (F5 residual): penanda swap di var tak
-  terpakai + multicall ke swapRouter untuk data non-swap.
-- (i) pull kecil ke address(this) yang dipakai ulang sebagai input
-  swap lain (F2 residual — butuh taint).
-- Tuple-destructure `(a, b) = swap(...)` belum dikenali (F7 residual).
-- (b) pull-forward: token variabel bernama bukan-WETH tanpa
-  `.withdraw(` di badan fungsi yang sama tetap ter-flag (konservatif;
-  unwrap di helper lain tak terlihat).
+- c2 multicall data binding (F5 residual): a swap marker in an unused
+  variable + a multicall to swapRouter for non-swap data.
+- (i) a small pull to address(this) reused as another swap's
+  input (F2 residual — needs taint).
+- Tuple destructuring `(a, b) = swap(...)` not yet recognized (F7 residual).
+- (b) pull-forward: a variable token not named WETH without
+  `.withdraw(` in the same function body is still flagged (conservative;
+  an unwrap in another helper is not visible).

@@ -1,36 +1,37 @@
-# FrankenAudit — Naskah video demo (DRAF, target < 3 menit)
+# FrankenAudit — Demo video script (DRAFT, target < 3 minutes)
 
-> Draf naskah + shot list untuk video demo YouTube publik (M4).
-> Status: DRAF — belum direkam. Target durasi: ±2:55. Bahasa: Inggris
-> (juri Devpost) dengan subtitle bila perlu.
+> Draft script + shot list for the public YouTube demo video (M4).
+> Status: DRAFT — voice-over recorded; screen capture pending the final
+> assembly. Target duration: ±2:55. Language: English (the Devpost
+> judges), with subtitles if needed.
 
-## Struktur (±175 detik)
+## Structure (±175 seconds)
 
-| # | Waktu | Visual | Narasi (draf) |
+| # | Time | Visual | Narration (draft) |
 | --- | --- | --- | --- |
-| 1 | 0:00–0:15 | Judul + logo FrankenAudit; potongan kode kontrak | "Bug-bounty scanners give you noise. FrankenAudit gives you candidates you can falsify — a hypothesis, the on-chain preconditions, and a verification checklist." |
-| 2 | 0:15–0:45 | App: tempel alamat kontrak / upload `trap-vault.sol`; klik Run | "Paste a contract address, or upload a Solidity file. The pipeline runs twenty-six pattern detectors plus Slither — here on a curated trap contract with thirty planted bugs." |
-| 3 | 0:45–1:20 | Halaman laporan: kandidat FA-001…; buka satu kandidat (setOwner, Critical) | "Every candidate is a hypothesis, not a verdict. Location, mechanism, preconditions, impact, and exactly how to verify it. No finding is called proven until a fork proof-of-concept runs." |
-| 4 | 1:20–1:50 | Lookup on-chain: pilih chain Cronos zkEVM, tempel alamat Pool Amply → 6.304 byte | "Then the live check. The app reads deployment state — read-only, no wallet, no transaction — to kill candidates that exist in code but are dead on-chain." |
-| 5 | 1:50–2:15 | Terminal Foundry: `forge test` PoC 4/4 PASS | "The survivors get a fork-level proof-of-concept. Four out of four pass here — including a drain through missing access control." |
-| 6 | 2:15–2:40 | Walkthrough repo `.kiro/`: buka `steering/bug-bounty.md` → `specs/frankenaudit/tasks.md` → `hooks/candidate-format-check.json`; potong ke `docs/kiro-crew-review-2026-11-23-d26.md` (temuan F1–F12) + terminal suite 977/977 | "Under the hood, everything is driven by Kiro: a bug-bounty steering persona, specs, and a format hook that keeps every candidate falsifiable. And Kiro surprised us — reviewing our newest detector, its crew fired fifty-eight adversarial test cases at it and found twelve issues in our own code. Our referee verified every claim against the real source before one fix landed. Nine hundred seventy-seven tests, all passing." |
-| 7 | 2:40–2:55 | Repo `.kiro/` (steering/specs/hooks) + penutup | "Built with Kiro: a bug-bounty steering persona, specs, and hooks — the same discipline our crew hunts with every day. FrankenAudit. Candidate, not verdict." |
+| 1 | 0:00–0:15 | Title + FrankenAudit logo; contract code snippets | "Bug-bounty scanners give you noise. FrankenAudit gives you candidates you can falsify — a hypothesis, the on-chain preconditions, and a verification checklist." |
+| 2 | 0:15–0:45 | App: paste a contract address / upload `trap-vault.sol`; click Run | "Paste a contract address, or upload a Solidity file. The pipeline runs twenty-six pattern detectors plus Slither — here on a curated trap contract with thirty planted bugs." |
+| 3 | 0:45–1:20 | Report page: candidates FA-001…; open one candidate (setOwner, Critical) | "Every candidate is a hypothesis, not a verdict. Location, mechanism, preconditions, impact, and exactly how to verify it. No finding is called proven until a fork proof-of-concept runs." |
+| 4 | 1:20–1:50 | On-chain lookup: pick the Cronos zkEVM chain, paste an Amply Pool address → 6,304 bytes | "Then the live check. The app reads deployment state — read-only, no wallet, no transaction — to kill candidates that exist in code but are dead on-chain." |
+| 5 | 1:50–2:15 | Foundry terminal: `forge test` PoC 4/4 PASS | "The survivors get a fork-level proof-of-concept. Four out of four pass here — including a drain through missing access control." |
+| 6 | 2:15–2:40 | Walkthrough of the repo's `.kiro/`: open `steering/bug-bounty.md` → `specs/frankenaudit/tasks.md` → `hooks/candidate-format-check.json`; cut to `docs/kiro-crew-review-2026-11-23-d26.md` (findings F1–F12) + a terminal showing the suite at 977/977 | "Under the hood, everything is driven by Kiro: a bug-bounty steering persona, specs, and a format hook that keeps every candidate falsifiable. And Kiro surprised us — reviewing our newest detector, its crew fired fifty-eight adversarial test cases at it and found twelve issues in our own code. Our referee verified every claim against the real source before one fix landed. Nine hundred seventy-seven tests, all passing." |
+| 7 | 2:40–2:55 | The repo's `.kiro/` (steering/specs/hooks) + closing | "Built with Kiro: a bug-bounty steering persona, specs, and hooks — the same discipline our crew hunts with every day. FrankenAudit. Candidate, not verdict." |
 
-## Catatan produksi
+## Production notes
 
-- Shot 6 BARU (24 Nov 2026, persetujuan Toufik — dari email juri
-  Kiroween: kriteria Technological Implementation + "show me how you
-  used specs, steering and hooks" + "Kiro surprised you"): VO SUDAH
-  direkam 24 Nov 2026 (Helio, `vo-shot6-kiro.mp3`, 26,4 dtk). VO shot penutup
-  lama (`vo-shot6.mp3`) tetap dipakai untuk shot 7 — narasinya tidak
-  berubah.
-- Rekam layar 1080p, app lokal (atau URL live bila M3 sudah live saat
-  rekam — lebih baik URL live).
-- Trap-vault: JANGAN sebut "aman" — tegaskan ini kontrak sampel yang
-  sengaja berisi bug, jangan deploy.
-- Musik latar: bebas lisensi, pelan. Subtitle Inggris bila narasi
-  beraksen.
-- Upload: YouTube publik, unlisted TIDAK cukup (syarat: publik).
-- Sebelum rekam: pastikan URL repo publik sudah live (butuh persetujuan
-  Toufik untuk push) — bila belum, rekam versi lokal dulu, ganti shot
-  repo di akhir bila URL sudah ada.
+- Shot 6 is NEW (24 Nov 2026, approved by Toufik — from the Kiroween
+  judges' email: the Technological Implementation criterion + "show me
+  how you used specs, steering and hooks" + "Kiro surprised you"): the VO
+  has ALREADY been recorded 24 Nov 2026 (Helio, `vo-shot6-kiro.mp3`,
+  26.4s). The old closing shot's VO (`vo-shot6.mp3`) is still used for
+  shot 7 — its narration did not change.
+- Record the screen at 1080p, from the live URL (the repo is public and
+  M3 is live — prefer the live URL over a local app).
+- Trap-vault: do NOT call it "safe" — stress that it is a sample contract
+  deliberately full of bugs; do not deploy it.
+- Background music: license-free, quiet. English subtitles if the
+  narration has an accent.
+- Upload: public YouTube; unlisted is NOT enough (the requirement is
+  public).
+- Before recording: make sure the public repo URL is live (it is, since
+  25 Nov 2026) and capture from the English UI.

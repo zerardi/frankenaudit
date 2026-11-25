@@ -1,95 +1,95 @@
-# Review Kiro crew — Kalibrasi R18.4 dust-by-design (D18)
+# Kiro crew review — R18.4 dust-by-design calibration (D18)
 
-Sesi Frankenstein #30, 18 Nov 2026 12:38 WIB. Pass Kiro: browser task bbd99d68,
-sesi baru "Audit R18.4 Dust-by-Design D18" (31cd692b), **Opus 5.5 eksplisit,
-tanpa flag MODEL_TIDAK_SESUAI**, 1 mnt 48 dtk, footer 1,87 kredit.
-Login aktif tanpa sign-in ulang.
+Frankenstein session #30, 18 Nov 2026 12:38 WIB. Kiro pass: browser task bbd99d68,
+new session "Audit R18.4 Dust-by-Design D18" (31cd692b), **Opus 5.5 explicit,
+no MODEL_TIDAK_SESUAI flag**, 1 min 48 sec, footer 1.87 credits.
+Active login with no re-sign-in.
 
-## Konteks
+## Context
 
-R18.4 (backlog detektor, sesi BB pagi 18 Nov): H3 gugur di pass SERANG-DULU
-Opus 5.5 — mekanisme PoC-verified tapi kelas dampak gugur karena residu
-dispatcher terdokumentasi sebagai dust protokol
-(`intent-gateway/overview.mdx:162`). Kalibrasi v1: sinyal dust (identifier
-`DustCollected`/`_sweepDust` atau baris prosa dust + kata konteks) yang
-terikat ke dispatcher menurunkan kandidat D18 Medium → Low (kandidat tetap
-ada). Tes 570/570 sebelum review.
+R18.4 (detector backlog, BB session on the morning of 18 Nov): H3 fell in the hostile-first
+Opus 5.5 pass — the mechanism was PoC-verified but the impact class fell because dispatcher residue
+is documented as protocol dust
+(`intent-gateway/overview.mdx:162`). v1 calibration: a dust signal (identifier
+`DustCollected`/`_sweepDust` or a dust prose line + a context word) that is
+bound to the dispatcher downgrades a D18 candidate from Medium → Low (the candidate
+remains). Tests 570/570 before the review.
 
 ## Harness H1–H9: 9/9 PASS
 
-H1 IntentsBase asli → sinyal ≥3 · H2 mentionsDispatcher true ·
+H1 real IntentsBase → signal ≥3 · H2 mentionsDispatcher true ·
 H3 "dust is everywhere" → 0 · H4 `uint256 dust;` → 0 ·
-H5 kutipan overview.mdx:162 → sinyal + mentionsDispatcher ·
-H6 dispatch Medium + sinyal terikat → Low + bukti ·
-H7 sinyal tak-terikat → Medium · H8 detektor lain tak disentuh ·
-H9 kandidat sudah Low tak diubah.
+H5 overview.mdx:162 quote → signal + mentionsDispatcher ·
+H6 dispatch Medium + bound signal → Low + evidence ·
+H7 unbound signal → Medium · H8 other detectors untouched ·
+H9 an already-Low candidate is unchanged.
 
-## Serangan adversarial: F1 BENAR, F2–F15 SALAH — vonis NEEDS WORK
+## Adversarial attacks: F1 CORRECT, F2–F15 WRONG — verdict NEEDS WORK
 
-Wasit jack memverifikasi tiap klaim ke kode ASLI via probe Node
-(seperti pola sesi-sesi sebelumnya: klaim Kiro tidak ditelan mentah).
-Ringkasan Kiro menyebut "9 kasus yang salah" sementara daftar rinci
-F1–F15 berisi 1 BENAR + 14 SALAH — ketidakselarasan hitungan dicatat
-apa adanya, tidak disamakan; yang dipakai wasit adalah daftar rinci.
+Referee jack verified each claim against the REAL code via Node probes
+(as in the pattern of previous sessions: Kiro's claims are not swallowed raw).
+Kiro's summary mentioned "9 wrong cases" while the detailed list
+F1–F15 contains 1 CORRECT + 14 WRONG — the count mismatch is recorded
+as-is, not reconciled; what the referee used is the detailed list.
 
-| # | Klaim Kiro | Verifikasi wasit | Perbaikan (R18.4b) |
+| # | Kiro claim | Referee verification | Fix (R18.4b) |
 |---|-----------|------------------|-------------------|
-| F1 | `withdrawDust` tanpa sweep/collect → 0 sinyal (FN konservatif) | BENAR — arah aman (severity tidak turun) | Tanpa fix; dicatat batas diketahui |
-| F2 | String literal `"amount is dust, nothing left to dispatch"` → 1 sinyal, Medium → Low | TERBUKTI — pindai per baris tak bedakan string/kode | Prosa HANYA dari komentar (extractCommentBlocks) + docs |
-| F3 | Docs multi-baris, dust & konteks beda baris → 0 | TERBUKTI — pindai per baris | Prosa per KALIMAT (baris di-join dulu) |
-| F4 | "are swept ... as dust" → 0; `sweep\w*` tak cocok "swept" | TERBUKTI | Tambah `swept` ke DUST_CONTEXT_RE |
-| F5 | "dust leftover" / "remainder" / "excessive" → 0 | TERBUKTI | Tambah `leftover\w*`, `remainder`, `refund\w*`, `excess\w*` |
-| F6 | SwapRouter impor IDispatcher + komentar dust AMM → Low (paling berbahaya) | TERBUKTI — mentionsDispatcher per-file | Ikatan PER SINYAL, nama kontrak eksak (bukan generik per file) |
-| F7 | "Dispatcher" di baris lain mengikat sinyal dust | TERBUKTI — akar sama dengan F6 | Ikatan (c) hanya dari konteks sinyal sendiri |
-| F8 | `import {DustCollector}` → 1 sinyal identifier | TERBUKTI | Baris `import ...;` di-mask (newline dipertahankan) |
-| F9 | "does NOT sweep dust" + `DustSweepNotSupported` → 2 sinyal | TERBUKTI — makna terbalik | Tolak negasi (kalimat + identifier) |
-| F10 | MockDispatcher.t.sol `test_sweepDust` → sinyal | TERBUKTI — tanpa filter path | Kecualikan test/tests/mocks?/script, `.t.sol`, `Mock*` |
-| F11 | Komentar identik 4x → 5 sinyal; teks sama di 3 file → 3 sinyal | TERBUKTI — hanya identifier di-dedup | Dedup per snippet; kalimat yang buktinya hanya dari identifier tak dihitung dua kali |
-| F12 | "shift left by 8 to avoid dust" → 1 sinyal ("left") | TERBUKTI | "left" telanjang dihapus; hanya "left over/in/behind/there" |
-| F13 | Sinyal CallDispatcher mengikat kandidat BridgeDispatcher | TERBUKTI — nama tak diperiksa | Ikatan nama eksak (prefix I- opsional) |
-| F14 | Kandidat tanpa toVerify → crash, mutasi parsial, batch berhenti | TERBUKTI | Default field dulu; severity diubah PALING AKHIR |
-| F15 | evidence/impact undefined → "undefined [..." | TERBUKTI | Sama dengan F14 |
+| F1 | `withdrawDust` with no sweep/collect → 0 signals (conservative FN) | CORRECT — safe direction (severity does not drop) | No fix; recorded as a known limit |
+| F2 | String literal `"amount is dust, nothing left to dispatch"` → 1 signal, Medium → Low | TERBUKTI — a per-line scan does not distinguish string/code | Prose ONLY from comments (extractCommentBlocks) + docs |
+| F3 | Multi-line docs, dust & context on different lines → 0 | TERBUKTI — a per-line scan | Prose per SENTENCE (lines joined first) |
+| F4 | "are swept ... as dust" → 0; `sweep\w*` does not match "swept" | TERBUKTI | Add `swept` to DUST_CONTEXT_RE |
+| F5 | "dust leftover" / "remainder" / "excessive" → 0 | TERBUKTI | Add `leftover\w*`, `remainder`, `refund\w*`, `excess\w*` |
+| F6 | SwapRouter imports IDispatcher + AMM dust comment → Low (most dangerous) | TERBUKTI — mentionsDispatcher was per-file | Binding PER SIGNAL, exact contract name (not generic per file) |
+| F7 | "Dispatcher" on another line binds a dust signal | TERBUKTI — same root as F6 | Binding (c) only from the signal's own context |
+| F8 | `import {DustCollector}` → 1 identifier signal | TERBUKTI | `import ...;` lines masked (newlines preserved) |
+| F9 | "does NOT sweep dust" + `DustSweepNotSupported` → 2 signals | TERBUKTI — reversed meaning | Reject negations (sentence + identifier) |
+| F10 | MockDispatcher.t.sol `test_sweepDust` → signal | TERBUKTI — no path filter | Exclude test/tests/mocks?/script, `.t.sol`, `Mock*` |
+| F11 | An identical comment 4x → 5 signals; the same text in 3 files → 3 signals | TERBUKTI — only identifiers were de-duplicated | De-duplicate per snippet; a sentence whose evidence is only from an identifier is not counted twice |
+| F12 | "shift left by 8 to avoid dust" → 1 signal ("left") | TERBUKTI | Bare "left" removed; only "left over/in/behind/there" |
+| F13 | A CallDispatcher signal binds a BridgeDispatcher candidate | TERBUKTI — the name was not checked | Exact name binding (optional I- prefix) |
+| F14 | A candidate with no toVerify → crash, partial mutation, batch stops | TERBUKTI | Default the fields first; severity changed LAST |
+| F15 | evidence/impact undefined → "undefined [..." | TERBUKTI | Same as F14 |
 
-## Keputusan wasit (di luar daftar Kiro, dengan alasan)
+## Referee decisions (outside Kiro's list, with reasons)
 
-- **Aturan dua-sumber (saran Kiro 3) DITERIMA.** Penurunan severity butuh
-  ≥2 sinyal terikat dengan snippet berbeda. Hyperbridge (kasus pemicu)
-  punya 7+ sinyal berbeda, jadi tetap Low. Biaya: proyek dengan satu
-  baris dokumentasi saja kini tidak turun — arah konservatif, benar
-  untuk fungsi yang MENURUNKAN severity.
-- **Cabang same-file sebagai pengikat (saran Kiro 2: hapus) DITAHAN
-  dengan alasan tercatat.** FP same-file yang ditemukan (F2 string
-  literal, F12 "shift left") sudah mati di akarnya masing-masing
-  (prosa-dari-komentar, "left" diperketat) — bukan karena same-file.
-  Menghapusnya akan membunuh kasus sah: file dispatcher yang
-  mendokumentasikan dust-nya sendiri di NatSpec.
-- **"stay/stuck/trapped/locked/remain"-ish sebagai negasi (tambahan
-  wasit).** Kalimat "dust leftovers stay in the contract" mendokumentasikan
-  dust yang TINGGAL, bukan di-sweep — ditolak sebagai sinyal. Kata
-  "remaining" sengaja TIDAK masuk daftar ini (`\bremain\b` tak cocok
-  "remaining", jadi kutipan overview.mdx:162 aman).
-- **F1 didokumentasikan sebagai batas, bukan diperbaiki.** Identifier
-  `withdrawDust` (dust tanpa sweep/collect) memang mekanisme dust,
-  tapi bukan dokumentasi bahwa residu dispatcher adalah dust protokol.
+- **The two-source rule (Kiro suggestion 3) ACCEPTED.** A severity downgrade needs
+  ≥2 bound signals with different snippets. Hyperbridge (the triggering case)
+  has 7+ different signals, so it remains Low. Cost: a project with only one
+  line of documentation now does not drop — a conservative direction, correct
+  for a function that LOWERS severity.
+- **The same-file branch as a binder (Kiro suggestion 2: remove it) RETAINED
+  with a recorded reason.** The same-file FPs found (F2 string
+  literal, F12 "shift left") already died at their respective roots
+  (prose-from-comments, "left" tightened) — not because of same-file.
+  Removing it would kill a legitimate case: a dispatcher file that
+  documents its own dust in NatSpec.
+- **"stay/stuck/trapped/locked/remain"-ish as negation (a referee
+  addition).** The sentence "dust leftovers stay in the contract" documents
+  dust that STAYS, not dust that is swept — rejected as a signal. The word
+  "remaining" deliberately does NOT enter this list (`\bremain\b` does not match
+  "remaining", so the overview.mdx:162 quote is safe).
+- **F1 documented as a limit, not fixed.** The identifier
+  `withdrawDust` (dust with no sweep/collect) really is a dust mechanism,
+  but it is not documentation that dispatcher residue is protocol dust.
 
-## Hasil pasca-R18.4b
+## Results after R18.4b
 
-- **Test 588/588 PASS** (570 lama + 18 baru seksi 46: F2–F15 + F1).
-  Seksi 45 diperbarui mengikuti aturan dua-sumber (45b/45c/45i kini
-  2 sinyal; 45g memakai kontrak `CallDispatcher` — docs tentang
-  CallDispatcher tidak mengikat kontrak bernama lain).
-- Hunting re-run pasca-R18.4b: Hyperbridge FA-005 `CallDispatcher.dispatch`
-  TETAP Low dust-by-design (7+ sinyal terikat berbeda); permukaan lain
-  identik — lihat entri log sesi #30 di STATUS.md.
+- **Tests 588/588 PASS** (570 old + 18 new in section 46: F2–F15 + F1).
+  Section 45 updated to follow the two-source rule (45b/45c/45i now
+  have 2 signals; 45g uses the `CallDispatcher` contract — docs about
+  CallDispatcher do not bind a differently named contract).
+- Hunting re-run after R18.4b: Hyperbridge FA-005 `CallDispatcher.dispatch`
+  REMAINS Low dust-by-design (7+ different bound signals); other surfaces
+  identical — see the session #30 log entry in STATUS.md.
 
-## Batas diketahui (baru)
+## Known limits (new)
 
-- Identifier `withdrawDust` / `dustBalance` tanpa sweep/collect bukan
-  sinyal (F1, konservatif).
-- Ikatan (b) menghitung impor nama dispatcher sebagai referensi
-  struktural — file yang hanya mengimpor ICallDispatcher + punya sinyal
-  dust terikat (dinilai sah: file itu berinteraksi dengan dispatcher).
-- Nama kandidat diambil dari SEMUA kontrak di file kandidat (bukan hanya
-  kontrak pemilik fungsi) — file multi-kontrak bisa mengikat longgar.
-- Prosa multi-kalimat dengan negasi di kalimat lain tetap lolos bila
-  kalimat dust-nya sendiri bersih (negasi dinilai per kalimat).
+- The identifier `withdrawDust` / `dustBalance` with no sweep/collect is not
+  a signal (F1, conservative).
+- Binding (b) counts an import of the dispatcher name as a structural
+  reference — a file that only imports ICallDispatcher + has a bound
+  dust signal (judged legitimate: that file interacts with the dispatcher).
+- Candidate names are taken from ALL contracts in the candidate file (not only
+  the function's owner contract) — a multi-contract file can bind loosely.
+- Multi-sentence prose with a negation in another sentence still passes if
+  the dust sentence itself is clean (negation is judged per sentence).

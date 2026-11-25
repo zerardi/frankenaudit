@@ -1,20 +1,20 @@
-# FrankenAudit — Devpost description (DRAF, diperbarui sesi #57, 23 Nov 2026)
+# FrankenAudit — Devpost description (DRAFT, updated session #57, 23 Nov 2026)
 
-> Draf untuk diisi ke draf Devpost 1298511 (M5). Bahasa Inggris (bahasa juri).
-> Status: DRAF — belum diisi ke Devpost, belum disubmit. Finalisasi + pengisian
-> butuh persetujuan Toufik.
+> Draft to fill into Devpost draft 1298511 (M5). English (the judges'
+> language). Status: DRAFT — not yet filled into Devpost, not submitted.
+> Finalization + filling need Toufik's approval.
 
 ## Project name
 
 FrankenAudit
 
-## Tagline (≤ 120 karakter, draf)
+## Tagline (≤ 120 characters, draft)
 
 A stitched-together smart-contract audit assistant: static analysis +
 Kiro agent crew + live on-chain checks, producing falsifiable bug-bounty
 candidates.
 
-## Description (draf)
+## Description (draft)
 
 **What it does**
 
@@ -83,23 +83,23 @@ it in a browser.
 
 **Built with Kiro**
 
-See `kiro-usage-writeup.md` (write-up pemakaian Kiro) in this repo.
+See `kiro-usage-writeup.md` (Kiro usage write-up) in this repo.
 
 **What's next**
 
 - Code freeze 24 Nov 2026; public repo + live demo URL 25 Nov 2026
-  (pending owner approval to flip the repo public).
+  (done — https://zerardi.github.io/frankenaudit/).
 - Video demo < 3 min: see `video-script.md` (voice-over recorded;
-  screen capture awaits the live URL).
+  final screen capture from the live English UI).
 - Submit target 27 Nov 2026 (final click needs owner approval).
 
-## Inspiration (draf, 1–2 kalimat)
+## Inspiration (draft, 1–2 sentences)
 
 Beginner bounty hunters get scanner noise, not findings. We wanted the
 auditor's discipline — hypothesis first, proof on a fork, verdict last —
 inside a tool a beginner can actually run.
 
-## What we learned (draf)
+## What we learned (draft)
 
 - A readable gate function read differentially is decisive proof; a
   reverted call is not.
@@ -111,7 +111,7 @@ inside a tool a beginner can actually run.
   is attacked before it is adopted, and several "proven" claims turned
   out to be stub artifacts.
 
-## Challenges (draf)
+## Challenges (draft)
 
 - Real code breaks naive extractors (multi-line signatures swallowed
   most functions until the scanner was rewritten).
@@ -123,7 +123,7 @@ inside a tool a beginner can actually run.
   chained import aliases) needed a project-level pass on top of
   per-file detectors.
 
-## How to run (draf)
+## How to run (draft)
 
 Static app — open `index.html` or serve the `app/` folder. Tests:
 `node tests/run-m2-tests.js` (977/977). Slither cross-check needs
@@ -131,4 +131,4 @@ Static app — open `index.html` or serve the `app/` folder. Tests:
 
 ## License
 
-MIT. Repo publik (pending flip 25 Nov 2026): `zerardi/frankenaudit`.
+MIT. Public repo: `zerardi/frankenaudit` (live since 25 Nov 2026).

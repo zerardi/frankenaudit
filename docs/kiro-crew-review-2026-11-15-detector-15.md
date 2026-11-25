@@ -1,130 +1,130 @@
-# Review silang Kiro crew atas detektor ke-15 (eth-locked-receive)
+# Kiro crew cross-review of detector #15 (eth-locked-receive)
 
-Tanggal: 15 Nov 2026, 12:39–12:47 WIB (sesi Frankenstein sprint #12).
-Model: Claude Opus 5.5 (dipilih manual di sesi "Audit Bug Bounty Kontrak Solidity"
-9bf915c9-a01e-4675-a9bb-b92f0a1c418a; pemilih awal menunjukkan Sonnet 5.5).
-Kredit: 32,68 → 36,74 (delta 4,06; Est. Credits Used pada jawaban: 4.06;
-elapsed 3m 34s). Kode detektor ditempel verbatim + konteks + 5 pertanyaan.
+Date: 15 Nov 2026, 12:39–12:47 WIB (Frankenstein sprint session #12).
+Model: Claude Opus 5.5 (selected manually in the "Audit Bug Bounty Kontrak Solidity"
+session 9bf915c9-a01e-4675-a9bb-b92f0a1c418a; the initial picker showed Sonnet 5.5).
+Credits: 32.68 → 36.74 (delta 4.06; Est. Credits Used in the answer: 4.06;
+elapsed 3m 34s). The detector code was pasted verbatim + context + 5 questions.
 
-## Hasil uji Kiro (26 kasus di Node, stub stripComments sederhana)
+## Kiro test results (26 cases in Node, a simple stripComments stub)
 
-- 14 dari 26 kasus = false positive, 7 = false negative (sebelum kalibrasi).
-- Hampir semua FP berasal dari idiom keluar-ETH yang tidak dikenali.
+- 14 of 26 cases = false positive, 7 = false negative (before calibration).
+- Almost all FPs came from unrecognized ETH-outflow idioms.
 
-## 1. Idiom keluar-ETH yang terlewat (semua terbukti FP di uji Kiro)
+## 1. Missed ETH-outflow idioms (all proven FP in Kiro's test)
 
-- Cast payable bersarang: `payable(owner()).transfer(x)` — `[^)]*` berhenti
-  di `)` pertama. Bug paling sering menurut Kiro.
-- `address payable` + immutable/constant: declRe lama menangkap kata
-  `immutable` sebagai nama variabel.
-- Array `address payable[]`: `rs[i].transfer(x)` — declRe mewajibkan spasi
-  setelah `payable`, regex variabel tidak mengizinkan `[i]`.
+- Nested payable cast: `payable(owner()).transfer(x)` — `[^)]*` stops
+  at the first `)`. The most frequent bug according to Kiro.
+- `address payable` + immutable/constant: the old declRe captured the word
+  `immutable` as a variable name.
+- `address payable[]` array: `rs[i].transfer(x)` — declRe required a space
+  after `payable`, the variable regex did not allow `[i]`.
 - Solady/Solmate/Uniswap: `SafeTransferLib.safeTransferETH`,
   `forceSafeTransferETH`, `trySafeTransferETH`,
-  `TransferHelper.safeTransferETH` — biasanya diimpor, isi call tidak ada
-  di file.
-- OZ Address: `Address.functionCallWithValue(t, data, x)` — hanya `sendValue`
-  yang dikenali.
-- Call option `{value:}` di luar `.call`: `IWETH(w).deposit{value: x}()`,
+  `TransferHelper.safeTransferETH` — usually imported, the call body is not
+  in the file.
+- OZ Address: `Address.functionCallWithValue(t, data, x)` — only `sendValue`
+  was recognized.
+- Call option `{value:}` outside `.call`: `IWETH(w).deposit{value: x}()`,
   `entryPoint.depositTo{value: msg.value}(…)`,
   `router.swapExactETHForTokens{value: x}(…)`, `new B{value: x}()`.
-- Sintaks lama (≤0.6): `to.call.value(x)("")`.
-- `msg.sender` / `tx.origin` (≤0.7): `msg.sender.transfer(x)` — aman
-  ditambahkan karena di 0.8 kode itu tidak ter-compile untuk ERC20.
+- Legacy syntax (≤0.6): `to.call.value(x)("")`.
+- `msg.sender` / `tx.origin` (≤0.7): `msg.sender.transfer(x)` — safe
+  to add because in 0.8 that code does not compile for ERC20.
 - Assembly: `call(gas(), to, v, 0, 0, 0, 0)`, `create(v, …)`,
   `create2(v, …)`.
-- Koreksi premis: `WETH.withdraw()` adalah ETH MASUK, bukan keluar
-  (WETH mengirim ETH ke kontrak); idiom keluarnya `deposit{value:}`.
-  `delegatecall` bukan idiom keluar-ETH — itu kasus FP proxy (poin 2).
+- Premise correction: `WETH.withdraw()` is ETH IN, not out
+  (WETH sends ETH to the contract); the outflow idiom is `deposit{value:}`.
+  `delegatecall` is not an ETH-outflow idiom — it is the proxy FP case (point 2).
 
-## 2. False positive
+## 2. False positives
 
 - Proxy delegatecall (OZ Proxy v4, ERC1967, Transparent, Beacon, Diamond,
-  Safe proxy): kasus uji OZ Proxy menghasilkan 2 hit (receive + fallback);
-  logika keluar-ETH ada di implementasi (file lain). Proxy hampir selalu
-  ada di repo target.
-- Outflow warisan dari file lain (`contract X is Rescuable`,
-  `BasePaymaster`…) — tidak bisa diselesaikan di level file.
-  SimplexPaymaster aman hanya karena `withdrawTo` kebetulan ada di file
-  yang sama.
-- Deklarasi tanpa body: `abstract contract A { receive() external payable
-  virtual; }` → 1 hit; interface yang mendeklarasikan `receive` juga kena.
-- `receive` yang langsung meneruskan ETH (`ep.depositTo{value:
-  msg.value}(…)`, `IWETH.deposit{value:}`) — FP turunan dari gap
-  `{value:}` poin 1; pola umum di paymaster.
-- `receive` yang revert atau hanya menerima dari satu pengirim:
-  `receive() external payable { revert(); }` → 1 hit; router Uniswap
+  Safe proxy): the OZ Proxy test case produced 2 hits (receive + fallback);
+  the ETH-outflow logic lives in the implementation (another file). A proxy is almost always
+  present in a target repo.
+- Inherited outflow from another file (`contract X is Rescuable`,
+  `BasePaymaster`…) — cannot be resolved at file level.
+  SimplexPaymaster was safe only because `withdrawTo` happened to be in the
+  same file.
+- Declaration without a body: `abstract contract A { receive() external payable
+  virtual; }` → 1 hit; an interface declaring `receive` was also hit.
+- A `receive` that immediately forwards ETH (`ep.depositTo{value:
+  msg.value}(…)`, `IWETH.deposit{value:}`) — a derivative FP from the
+  `{value:}` gap in point 1; a common pattern in paymasters.
+- A `receive` that reverts or only accepts from one sender:
+  `receive() external payable { revert(); }` → 1 hit; the Uniswap router
   (`assert(msg.sender == WETH)` + `TransferHelper.safeTransferETH`).
 - Mock/test: `mocks/`, `test/`, `*.t.sol`, `Mock*`, `Harness*` —
-  HostManager hanya bisa dikenali lewat komentar "test-only", dan komentar
-  itu sudah dibuang `stripComments`; filter path lebih andal.
-- WETH sendiri aman dan sudah benar menghasilkan 0 (withdraw di dalamnya
-  memakai `call{value:}`).
+  HostManager could only be recognized via a "test-only" comment, and that comment
+  had already been removed by `stripComments`; a path filter is more reliable.
+- WETH itself was safe and correctly produced 0 (its withdraw uses
+  `call{value:}`).
 
-## 3. False negative (koreksi premis + yang terbukti)
+## 3. False negatives (premise corrections + proven ones)
 
-- Premis yang SALAH: `fallback(bytes calldata d) external payable returns
-  (bytes memory)` TETAP ter-flag (`[^)]*` menangani parameter dengan
-  benar); `receive() external payable onlyX` tetap ter-flag; `receive` di
-  interface menghasilkan FP, bukan FN.
-- FN terbukti: `receive() payable external {}` (urutan modifier bebas);
-  `receive() virtual external payable {}` + `override` di depan;
+- WRONG premise: `fallback(bytes calldata d) external payable returns
+  (bytes memory)` is STILL flagged (`[^)]*` handles parameters
+  correctly); `receive() external payable onlyX` is still flagged; a `receive` in
+  an interface produces an FP, not an FN.
+- Proven FNs: `receive() payable external {}` (free modifier order);
+  `receive() virtual external payable {}` + `override` in front;
   `receive() onlyX external payable {}`; `function() external payable {}`
-  dan `function() payable public {}` (≤0.5, fallback tanpa nama).
-- Suppression oleh DEKLARASI, bukan pemanggilan: `function
-  withdrawTo(address,uint)` di kontrak sendiri yang hanya mengirim ERC20
-  (gaya OZ ERC20Wrapper) ikut menekan; `withdrawTo` di interface
-  `IEntryPoint` dalam file yang sama juga menekan walau tidak pernah
-  dipanggil. Pola `sendValue\s*\(` punya masalah yang sama.
-- Outflow di kontrak LAIN dalam file yang sama: `contract B { …transfer…
-  } contract A { receive… }` membuat A ikut tertekan.
-- Batas desain (tidak diuji Kiro): `call{value: 0}` atau `call{value:
-  msg.value}` yang hanya meneruskan nilai tetap menekan, padahal ETH dari
-  receive tidak pernah bisa keluar.
+  plus `function() payable public {}` (≤0.5, unnamed fallback).
+- Suppression by DECLARATION, not by call: a `function
+  withdrawTo(address,uint)` in the contract itself that only sends ERC20
+  (OZ ERC20Wrapper style) also suppressed it; a `withdrawTo` in the `IEntryPoint` interface
+  in the same file also suppressed it even though it was never
+  called. The `sendValue\s*\(` pattern has the same problem.
+- Outflow in ANOTHER contract in the same file: `contract B { …transfer…
+  } contract A { receive… }` made A suppressed as well.
+- Design limit (not tested by Kiro): a `call{value: 0}` or `call{value:
+  msg.value}` that only forwards value still suppresses, even though ETH from
+  a receive can never leave that way.
 
 ## 4. Severity
 
-- Info sudah tepat sebagai default.
-- Varian layak naik ke Low (ETH masuk lewat alur normal protokol, bukan
-  kesalahan pengguna): file memanggil `IWETH(…).withdraw(…)` tetapi tidak
-  punya jalur keluar-ETH; kontrak menjadi `refundAddress` / `refundTo =
-  address(this)` untuk fee bridge/messaging (LayerZero, CCIP,
-  Hyperbridge); fungsi payable yang menerima `msg.value` lebih dari yang
-  dipakai tanpa refund (di luar regex receive, kelas sama).
-- Tetap Info/turun: kontrak di balik proxy upgradeable (rescue bisa
-  ditambah lewat upgrade); `receive` dengan guard `msg.sender == WETH`.
+- Info is already correct as the default.
+- Variants worth raising to Low (ETH comes in through the protocol's normal flow, not
+  user error): the file calls `IWETH(…).withdraw(…)` but has
+  no ETH-outflow path; the contract becomes a `refundAddress` / `refundTo =
+  address(this)` for a bridge/messaging fee (LayerZero, CCIP,
+  Hyperbridge); a payable function that receives more `msg.value` than it
+  uses without a refund (outside the receive regex, same class).
+- Remains Info/downgraded: a contract behind an upgradeable proxy (a rescue can
+  be added via an upgrade); a `receive` with a `msg.sender == WETH` guard.
 
-## 5. Usulan perbaikan Kiro (urut prioritas) + status penerapan
+## 5. Kiro's proposed fixes (in priority order) + application status
 
-1. Perlebar idiom keluar-ETH — **DITERAPKAN v3** (call option `{value:}`
-   umum, cast bersarang, declRe immutable/constant/array, safeTransferETH
-   family, `functionCallWithValue`, `.value(` legacy, `msg.sender`/
-   `tx.origin` transfer/send, assembly `call(gas(),…)`). Dua regex panjang
-   Kiro terpotong tampilannya di halaman (declRe lengkap + regex
-   receive/fallback) — diterapkan versi jack yang diuji sendiri 116/116.
-   `create`/`create2` assembly BELUM diterapkan (batas diketahui).
-2. Tangani proxy terpisah — **DITERAPKAN v3**: file memuat
-   `delegatecall(`/`_delegate(`/`_fallback(` → tidak ada hit.
-3. Regex receive/fallback baru (hanya bila ada body, modifier urutan apa
-   pun, fallback lama) — **DITERAPKAN v3**; `receive()` yang langsung
-   `revert()` BELUM diturunkan ke skip (batas diketahui).
-4. Cakupan per-kontrak + hitung pemanggilan, bukan deklarasi —
-   **SEBAGIAN DITERAPKAN v3**: `withdrawTo`/`withdrawStake`/`sendValue`
-   kini pola pemanggilan (`(?<!function\s)`). Pemecahan per-contract +
-   pass proyek (rantai `is`) BELUM dikerjakan — butuh desain, dicatat
-   sebagai batas diketahui di pipeline.js.
-5. Filter path + kalibrasi severity — **DITERAPKAN v3/v3.1**: path
-   test/mock dilewati; naik Low bila `IWETH.withdraw` / `refund=
-   address(this)`. v3.1: `.withdraw(` polos TIDAK cukup — HostManager
-   Hyperbridge (`IHostManager(...).withdraw()`, tarik revenue bridge)
-   sempat ter-elevasi palsu ke Low; wajib ada WETH di receiver.
+1. Widen the ETH-outflow idioms — **APPLIED in v3** (general `{value:}` call option,
+   nested casts, declRe for immutable/constant/array, the safeTransferETH
+   family, `functionCallWithValue`, legacy `.value(`, `msg.sender`/
+   `tx.origin` transfer/send, assembly `call(gas(),…)`). Two of Kiro's long regexes
+   were truncated in the page display (the full declRe + the receive/fallback
+   regex) — jack's own version was applied, tested 116/116.
+   Assembly `create`/`create2` NOT YET applied (known limit).
+2. Handle proxies separately — **APPLIED in v3**: a file containing
+   `delegatecall(`/`_delegate(`/`_fallback(` → no hits.
+3. New receive/fallback regex (only if there is a body, modifiers in any
+   order, legacy fallback) — **APPLIED in v3**; a `receive()` that immediately
+   `revert()`s has NOT YET been downgraded to a skip (known limit).
+4. Per-contract scoping + count calls, not declarations —
+   **PARTIALLY APPLIED in v3**: `withdrawTo`/`withdrawStake`/`sendValue`
+   are now call patterns (`(?<!function\s)`). Per-contract splitting +
+   a project pass (the `is` chain) NOT YET done — needs design, recorded
+   as a known limit in pipeline.js.
+5. Path filter + severity calibration — **APPLIED in v3/v3.1**: test/mock paths
+   are skipped; raised to Low if there is `IWETH.withdraw` / `refund=
+   address(this)`. v3.1: a plain `.withdraw(` is NOT enough — Hyperbridge's HostManager
+   (`IHostManager(...).withdraw()`, withdrawing bridge revenue)
+   was falsely elevated to Low; WETH must be the receiver.
 
-## Verifikasi pasca-kalibrasi (sesi ini)
+## Post-calibration verification (this session)
 
-- Test suite: **116/116 PASS** (94 lama + 22 baru seksi 15/15b).
-- Hunting re-run 15 detektor (+ baseline): Amply 18 (identik, FA-AMP-18/19
-  tetap Info), RAAC 8 (identik), Hyperbridge 2 (FA-HYP-07 kembali Info
-  sesudah v3.1; FA-HYP-04 tx-origin High tetap), Flow 0. **0 kandidat
-  baru; tidak ada entri KANDIDAT FRANKENSTEIN baru sesi ini.**
-- Ground truth trap-vault tetap 16 kandidat (TrapVault punya
-  `call{value:}` → tertekan dengan benar).
+- Test suite: **116/116 PASS** (94 old + 22 new in sections 15/15b).
+- Hunting re-run of 15 detectors (+ baseline): Amply 18 (identical, FA-AMP-18/19
+  remain Info), RAAC 8 (identical), Hyperbridge 2 (FA-HYP-07 back to Info
+  after v3.1; FA-HYP-04 tx-origin High remains), Flow 0. **0 new
+  candidates; no new KANDIDAT FRANKENSTEIN entries this session.**
+- The trap-vault ground truth remains 16 candidates (TrapVault has
+  `call{value:}` → correctly suppressed).

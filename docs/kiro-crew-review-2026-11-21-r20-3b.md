@@ -1,78 +1,78 @@
-# Kalibrasi R20.3b atas residual R20.3a (D20 swap-output)
+# Calibration R20.3b on residual R20.3a (D20 swap-output)
 
-Sesi Frankenstein #47, 21 Nov 2026. **Wasit lokal, TANPA pass Kiro** —
-sesi BB pagi sedang memakai Kiro Web (browser task 894b1001, pass
-ronde 2 Resupply); review silang Kiro atas R20.3b DITUNDA ke sesi
-berikut bila slot Kiro kosong. Probe wasit ke kode ASLI:
-`/tmp/probe-d20-r203b.js`, 6 kasus.
+Frankenstein session #47, 21 Nov 2026. **Local referee, WITHOUT a Kiro pass** —
+the morning BB session was using Kiro Web (browser task 894b1001, pass
+round 2 Resupply); a Kiro cross-review of R20.3b is DEFERRED to the
+next session if a Kiro slot is free. Referee probe against the REAL code:
+`/tmp/probe-d20-r203b.js`, 6 cases.
 
-## Celah yang dibuktikan probe (pra-perbaikan)
+## Gap proven by the probes (pre-fix)
 
-### F7 residual — tuple-destructure tidak dikenali c1 (TERBUKTI)
+### F7 residual — tuple-destructure not recognised by c1 (TERBUKTI)
 
-`isCallerFunded` hanya mengumpulkan penugasan polos `V = RHS;`.
-Tiga bentuk tuple lolos sebagai swap-output sehingga D20 memberi
-Medium palsu atas swap-forward yang sah:
+`isCallerFunded` only collected plain assignments `V = RHS;`.
+Three tuple shapes slipped through as swap-output so D20 gave
+a false Medium on a legitimate swap-forward:
 
-- `(amountOut, amountInUsed) = ISwapRouter(router).swapExactTokensForETH(...)` → 1 (harap 0)
-- `(uint256 amountOut, uint256 amountInUsed) = ISwapRouter(router).exactInputSingle(...)` → 1 (harap 0)
-- `(, uint256 amountOut) = ISwapRouter(router).swap(...)` → 1 (harap 0)
+- `(amountOut, amountInUsed) = ISwapRouter(router).swapExactTokensForETH(...)` → 1 (expected 0)
+- `(uint256 amountOut, uint256 amountInUsed) = ISwapRouter(router).exactInputSingle(...)` → 1 (expected 0)
+- `(, uint256 amountOut) = ISwapRouter(router).swap(...)` → 1 (expected 0)
 
-Kontrol negatif benar: tuple dari `getReserves` (bukan swap) tetap 1.
+Negative control correct: a tuple from `getReserves` (not a swap) stayed 1.
 
-### F5 residual — ikatan data multicall c2 (TERBUKTI)
+### F5 residual — multicall data binding c2 (TERBUKTI)
 
-c2 hanya menguji `/exactInput|exactOutput/.test(cut)` secara global,
-jadi penanda swap di variabel TAK TERPAKAI + multicall ke swapRouter
-yang datanya QUOTE ikut ter-suppress:
+c2 only tested `/exactInput|exactOutput/.test(cut)` globally,
+so a swap marker in an UNUSED variable + a multicall to swapRouter
+whose data was a QUOTE also got suppressed:
 
-- `swapCall = encodeWithSelector(exactInputSingle)` (tak pernah dipakai)
+- `swapCall = encodeWithSelector(exactInputSingle)` (never used)
   + `data[0] = quoteCall` (`quoteExactInputSingle`) +
   `IMulticallExtended(router).multicall(deadline, data)` +
-  `amountOut = abi.decode(results[0], ...)` → 0 (harap 1)
+  `amountOut = abi.decode(results[0], ...)` → 0 (expected 1)
 
-Kontrol c2 lama benar: `data[0] = swapCall` (terpakai) tetap 0.
+Old c2 control correct: `data[0] = swapCall` (used) stayed 0.
 
-## Perbaikan R20.3b
+## R20.3b fixes
 
-1. **Tuple-destructure:** penugasan `(...) = RHS;` ikut dikumpulkan
-   sebagai penugasan V — digabung dengan penugasan polos, diurutkan
-   menurut posisi, yang dipakai tetap TERAKHIR. Elemen tuple diuji
-   per koma (kata terakhir elemen sesudah buang tipe harus V);
-   elemen member (mengandung `.`) dilewati (konservatif). Batas:
-   tuple bersarang `(a, (b, c))` hanya tertangkap bila V muncul
-   sebagai kata terakhir salah satu potongan koma (cukup untuk
-   bentuk 1 level yang umum).
-2. **Ikatan data c2:** penanda swap kini harus TERIKAT ke argumen
-   data multicall — literal di argumen, pengisian `data[i]`/`push`,
-   atau RHS var yang diisikan (satu hop). Penanda diuji ber-segmen:
-   callee DIAWALI `exactInput`/`exactOutput`/`swap` + `(` atau
-   `.selector` — `quoteExactInputSingle` dan `previewSwap` TIDAK
-   lolos. Bila data tidak diisi lokal (param/helper lain), fallback
-   ke uji global lama supaya perilaku bentuk itu tidak berubah
-   (batas yang didokumentasikan, bukan celah baru).
+1. **Tuple-destructure:** assignments `(...) = RHS;` are also collected
+   as V assignments — merged with plain assignments, sorted
+   by position, the one used is still the LAST. Tuple elements are tested
+   per comma (the last word of an element after stripping the type must be V);
+   member elements (containing `.`) are skipped (conservative). Limit:
+   nested tuples `(a, (b, c))` are only caught if V appears
+   as the last word of one of the comma pieces (sufficient for
+   the common 1-level shape).
+2. **c2 data binding:** a swap marker must now be BOUND to the multicall
+   data argument — a literal in the argument, a `data[i]`/`push` fill,
+   or the RHS of a variable that is filled in (one hop). Markers are tested per segment:
+   the callee STARTS WITH `exactInput`/`exactOutput`/`swap` + `(` or
+   `.selector` — `quoteExactInputSingle` and `previewSwap` do NOT
+   pass. If the data is not filled locally (parameter/another helper), it falls back
+   to the old global test so the behaviour for that shape does not change
+   (a documented limit, not a new gap).
 
-## Hasil akhir
+## Final result
 
-- Probe wasit pasca-R20.3b: **6/6 PASS** (pra-perbaikan 2/6).
-- Suite: **862 → 868/868 PASS** (Seksi 63 baru, 6 tes).
-  Verifikasi negatif: tepat 4 tes baru gagal di kode pra-R20.3b
+- Referee probe after R20.3b: **6/6 PASS** (pre-fix 2/6).
+- Suite: **862 → 868/868 PASS** (new section 63, 6 tests).
+  Negative verification: exactly 4 new tests fail on the pre-R20.3b code
   (63-1/63-2/63-4/63-5).
-- Hunting re-run 9 permukaan pasca-R20.3b: **IDENTIK** dengan
-  baseline pasca-R20.3a — Fulcrom 15, Amply 18, RAAC 14,
+- Hunting re-run on 9 surfaces after R20.3b: **IDENTICAL** to
+  the baseline after R20.3a — Fulcrom 15, Amply 18, RAAC 14,
   Hyperbridge 7, Flow 0, Veno 6, Veno zkEVM 0, LCROBridge 0,
-  Resupply 12; recall vs Kiro AMP tetap 4/7; **0 kandidat baru.**
+  Resupply 12; recall vs Kiro AMP still 4/7; **0 new candidates.**
 
-## Batas yang diketahui (R20.3b)
+## Known limits (R20.3b)
 
-- Ikatan data multicall c2 bila data param/helper lain: fallback
-  uji global (perilaku lama dipertahankan).
-- (i) pull kecil ke address(this) yang dipakai ulang sebagai input
-  swap lain (F2 residual — butuh taint penuh).
-- Tuple-destructure bersarang >1 level belum diuji.
-- (b) pull-forward: token variabel bernama bukan-WETH tanpa
-  `.withdraw(` di badan fungsi yang sama tetap ter-flag
-  (konservatif; unwrap di helper lain tak terlihat).
-- F11 label-per-target + F10 two-hop tetap DITUNDA (lihat STATUS.md
-  sesi #47: F11 berisiko salah-nilai severity; F10 two-hop terlalu
-  besar 3 hari sebelum freeze 24 Nov).
+- c2 multicall data binding when the data is a parameter/another helper: falls back
+  to the global test (old behaviour retained).
+- (i) a small pull to address(this) that is reused as input to
+  another swap (F2 residual — needs full taint).
+- Nested tuple-destructures >1 level not yet tested.
+- (b) pull-forward: a variable-named token that is not WETH without
+  `.withdraw(` in the same function body is still flagged
+  (conservative; an unwrap in another helper is not visible).
+- F11 per-target labels + F10 two-hop remain DEFERRED (see STATUS.md
+  session #47: F11 risks mis-scoring severity; F10 two-hop is too
+  large 3 days before the 24 Nov freeze).
