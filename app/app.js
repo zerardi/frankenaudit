@@ -1,7 +1,5 @@
 // FrankenAudit — app.js (M1 scaffold)
-// Orkestrasi UI. Daftar sampel dimuat dari samples/index.json (M2).
-// M1: tanpa sampel dulu — input manual (tempel source via upload / alamat
-// hanya validasi format; lookup on-chain di M2).
+// UI orchestration. The sample list is loaded from samples/index.json (M2).
 
 const $ = (id) => document.getElementById(id);
 
@@ -9,29 +7,29 @@ function isValidAddress(a) {
   return /^0x[0-9a-fA-F]{40}$/.test(a.trim());
 }
 
-// Baseline upstream (wiring UI, sesi 00:38 WIB 2026-11-15): peta
-// basename -> source, dibangun dari file .sol yang diunggah user.
-// Dipakai runPipeline untuk detektor enum-semantic-shift + klasifikasi
-// upstream-diff (commented-out-*, oracle-passthrough). Tanpa baseline,
-// kandidat-kandidat itu tetap muncul tapi tanpa anotasi upstream.
-let baselineMap = null; // null = belum diunggah
+// Upstream baseline (UI wiring): a basename -> source map built from the
+// .sol files the user uploads. Used by runPipeline for the
+// enum-semantic-shift detector + upstream-diff classification
+// (commented-out-*, oracle-passthrough). Without a baseline those
+// candidates still appear, but without the upstream annotation.
+let baselineMap = null; // null = not uploaded yet
 let baselineCollisions = [];
 
 function renderBaselineStatus() {
   const el = $("baseline-status");
   const clearBtn = $("baseline-clear-btn");
   if (!baselineMap) {
-    el.textContent = "Baseline: belum diunggah — kandidat commented-out / "
-      + "enum / oracle tampil tanpa klasifikasi upstream-diff.";
+    el.textContent = "Baseline: none uploaded — commented-out / enum / "
+      + "oracle candidates are shown without upstream-diff classification.";
     clearBtn.hidden = true;
     return;
   }
   const n = Object.keys(baselineMap).length;
-  el.textContent = "Baseline: " + n + " file upstream dimuat"
+  el.textContent = "Baseline: " + n + " upstream file(s) loaded"
     + (baselineCollisions.length
-      ? " (tabrakan basename diabaikan: " + baselineCollisions.join(", ") + ")"
+      ? " (basename collisions ignored: " + baselineCollisions.join(", ") + ")"
       : "")
-    + " — kandidat commented-out / enum / oracle diklasifikasi "
+    + " — commented-out / enum / oracle candidates are classified "
     + "live-identical / live-modified / live-divergent / absent.";
   clearBtn.hidden = false;
 }
@@ -45,8 +43,8 @@ $("baseline-input").addEventListener("change", async (e) => {
   baselineMap = built.map;
   baselineCollisions = built.collisions;
   renderBaselineStatus();
-  $("report").innerHTML = "<p>Baseline dimuat (" + Object.keys(baselineMap).length
-    + " file). Klik “Jalankan analisis” untuk pass dengan klasifikasi upstream-diff.</p>";
+  $("report").innerHTML = "<p>Baseline loaded (" + Object.keys(baselineMap).length
+    + " file(s)). Click “Run analysis” for a pass with upstream-diff classification.</p>";
 });
 
 $("baseline-clear-btn").addEventListener("click", () => {
@@ -54,15 +52,15 @@ $("baseline-clear-btn").addEventListener("click", () => {
   baselineCollisions = [];
   $("baseline-input").value = "";
   renderBaselineStatus();
-  $("report").innerHTML = "<p>Baseline dihapus. Pass berikutnya jalan tanpa klasifikasi upstream-diff.</p>";
+  $("report").innerHTML = "<p>Baseline cleared. The next pass runs without upstream-diff classification.</p>";
 });
 
 $("run-btn").addEventListener("click", () => {
   const source = $("source-view").textContent || "";
   const fileName = $("sample-select").value || "input.sol";
-  if (!source || source.startsWith("// source kontrak")) {
-    $("report").innerHTML = "<p>Belum ada source. Pilih sampel, unggah "
-      + "file .sol, atau tempel alamat kontrak dulu.</p>";
+  if (!source || source.startsWith("// contract source")) {
+    $("report").innerHTML = "<p>No source yet. Pick a sample, upload "
+      + "a .sol file, or paste a contract address first.</p>";
     return;
   }
   const result = runPipeline(source, fileName,
@@ -75,52 +73,52 @@ $("file-input").addEventListener("change", async (e) => {
   if (!file) return;
   const text = await file.text();
   $("source-view").textContent = text;
-  $("report").innerHTML = "<p>File dimuat. Klik “Jalankan analisis”.</p>";
+  $("report").innerHTML = "<p>File loaded. Click “Run analysis”.</p>";
 });
 
 $("address-input").addEventListener("change", async (e) => {
   const addr = e.target.value.trim();
   if (!addr) return;
   if (!isValidAddress(addr)) {
-    $("report").innerHTML = "<p>Alamat tidak valid. Format: 0x + 40 karakter hex.</p>";
+    $("report").innerHTML = "<p>Invalid address. Format: 0x + 40 hex characters.</p>";
     return;
   }
   const rpc = ($("chain-select") && $("chain-select").value)
     || "https://bsc-dataseed.binance.org/";
-  $("report").innerHTML = "<p>Mengecek bytecode on-chain (read-only, eth_getCode)…</p>";
+  $("report").innerHTML = "<p>Checking on-chain bytecode (read-only, eth_getCode)…</p>";
   try {
     const code = await Promise.race([
       fetchBytecodeReadOnly(rpc, addr),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout RPC")), 15000)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("RPC timeout")), 15000)),
     ]);
     if (!code || code === "0x") {
-      $("report").innerHTML = "<p>Alamat " + addr + " <strong>bukan kontrak</strong> "
-        + "(tidak ada bytecode di chain ini) — kemungkinan EOA / belum deploy. "
-        + "Analisis butuh source .sol: unggah file atau pilih sampel.</p>";
+      $("report").innerHTML = "<p>Address " + addr + " is <strong>not a contract</strong> "
+        + "(no bytecode on this chain) — likely an EOA / not deployed yet. "
+        + "Analysis needs the .sol source: upload the file or pick a sample.</p>";
       return;
     }
     const bytes = (code.length - 2) / 2;
-    $("report").innerHTML = "<p>Alamat " + addr + " adalah <strong>kontrak ter-deploy</strong> "
-      + "(bytecode " + bytes.toLocaleString("id-ID") + " byte, dicek read-only via eth_getCode). "
-      + "Source belum diambil otomatis — tempel/unggah file .sol kontrak ini lalu klik "
-      + "“Jalankan analisis” untuk laporan kandidat.</p>";
+    $("report").innerHTML = "<p>Address " + addr + " is a <strong>deployed contract</strong> "
+      + "(bytecode " + bytes.toLocaleString("en-US") + " bytes, checked read-only via eth_getCode). "
+      + "Source is not fetched automatically — paste/upload this contract's .sol file and click "
+      + "“Run analysis” for the candidate report.</p>";
   } catch (err) {
-    $("report").innerHTML = "<p>Lookup on-chain gagal (" + err.message + "). "
-      + "Cek koneksi / RPC, atau unggah file .sol langsung.</p>";
+    $("report").innerHTML = "<p>On-chain lookup failed (" + err.message + "). "
+      + "Check the connection / RPC, or upload the .sol file directly.</p>";
   }
 });
 
-// M2.5 Intake & Gate (sesi 04:38 WIB 2026-11-17): nilai program yang dikenal
-// (skor + vonis gerbang + routing) dan render kartunya. Mode gerbang dipilih
-// user; default strict (v10). Vonis KONFIRMASI = berhenti, JANGAN hunting
-// target itu sampai manusia mengonfirmasi; TOLAK = blacklist.
+// M2.5 Intake & Gate: score the known programs (score + gate verdict +
+// routing) and render their cards. The gate mode is picked by the user;
+// default strict (v10). A KONFIRMASI verdict = stop, do NOT hunt that
+// target until a human confirms; TOLAK = blacklist.
 $("intake-run-btn").addEventListener("click", () => {
   const mode = ($("intake-mode-select") && $("intake-mode-select").value) || "strict";
   const run = intakeRun(knownPrograms(), [], { mode });
   $("intake-report").innerHTML = renderIntakeReport(run);
 });
 
-// Muat daftar sampel (M2 — bila samples/index.json belum ada, biarkan kosong).
+// Load the sample list (M2 — if samples/index.json does not exist yet, leave empty).
 fetch("samples/index.json")
   .then((r) => (r.ok ? r.json() : []))
   .then((list) => {
@@ -131,12 +129,12 @@ fetch("samples/index.json")
       $("sample-select").appendChild(opt);
     });
   })
-  .catch(() => { /* belum ada sampel — wajar di M1 */ });
+  .catch(() => { /* no samples yet — normal at M1 */ });
 
 $("sample-select").addEventListener("change", async (e) => {
   const file = e.target.value;
   if (!file) return;
   const res = await fetch("samples/" + file);
   $("source-view").textContent = await res.text();
-  $("report").innerHTML = "<p>Sampel dimuat. Klik “Jalankan analisis”.</p>";
+  $("report").innerHTML = "<p>Sample loaded. Click “Run analysis”.</p>";
 });

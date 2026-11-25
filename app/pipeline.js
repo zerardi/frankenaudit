@@ -12,7 +12,7 @@ function normalizeCandidate(raw) {
     title: raw.title,
     location: raw.location, // { file, function }
     hypothesis: raw.hypothesis,
-    preconditions: raw.preconditions || "Belum terverifikasi.",
+    preconditions: raw.preconditions || "Not yet verified.",
     impact: raw.impact || "",
     severityGuess: raw.severityGuess || "Low",
     evidence: raw.evidence || "",
@@ -415,20 +415,20 @@ function detectReentrancy(fn, fileName, id) {
     if (callIdx >= 0 && k > callIdx && writeRe.test(fn.bodyLines[k])) {
       return [normalizeCandidate({
         id, detector: "reentrancy-call-before-update",
-        title: "Kemungkinan reentrancy: state update sesudah external call",
+        title: "Possible reentrancy: state update after an external call",
         location: { file: fileName, function: fn.name },
-        hypothesis: "Fungsi " + fn.name + " mengirim ETH/token sebelum "
-          + "memperbarui state, sehingga kontrak penerima bisa re-enter "
-          + "dan mengulang penarikan sebelum saldo tercatat berkurang.",
-        preconditions: "Penerima adalah kontrak dengan fallback/receive "
-          + "yang memanggil kembali fungsi ini; saldo korban mencukupi.",
-        impact: "Pengurasan saldo kontrak bila pola terkonfirmasi.",
+        hypothesis: "Function " + fn.name + " sends ETH/tokens before "
+          + "updates state, so the receiving contract can re-enter "
+          + "and repeats the withdrawal before the balance is recorded as decreased.",
+        preconditions: "The receiver is a contract with a fallback/receive "
+          + "that calls this function back; the victim's balance is sufficient.",
+        impact: "Draining of the contract balance if the pattern is confirmed.",
         severityGuess: "High",
-        evidence: "external call di baris " + (fn.startLine + callIdx + 1)
-          + ", state update di baris " + (fn.startLine + k + 1) + ".",
-        toVerify: ["Baca urutan lengkap fungsi " + fn.name,
-          "cek apakah ada reentrancy guard (nonReentrant)",
-          "PoC fork: kontrak penyerang re-enter"],
+        evidence: "external call at line " + (fn.startLine + callIdx + 1)
+          + ", state update at line " + (fn.startLine + k + 1) + ".",
+        toVerify: ["Read the full sequence of function " + fn.name,
+          "check whether there is a reentrancy guard (nonReentrant)",
+          "Fork PoC: an attacker contract re-enters "],
         source: "pattern-scan",
       })];
     }
@@ -470,20 +470,20 @@ function detectMissingAccessControl(fn, fileName, id) {
   if (hasAccessGuard(fn)) return [];
   return [normalizeCandidate({
     id, detector: "missing-access-control",
-    title: "Fungsi kritikal tanpa kontrol akses",
+    title: "Critical function without access control",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " menulis state sensitif ("
-      + (m ? m[0].trim() : "?") + ") tanpa modifier akses dan tanpa "
-      + "require(msg.sender == ...) — siapa pun bisa memanggilnya.",
-    preconditions: "Fungsi bersifat external/public dan dapat dipanggil "
-      + "oleh alamat mana pun.",
-    impact: "Pengambilalihan peran / pengiriman aset tanpa izin bila terkonfirmasi.",
+    hypothesis: "Function " + fn.name + " writes sensitive state ("
+      + (m ? m[0].trim() : "?") + ") without an access modifier and without "
+      + "require(msg.sender == ...) — anyone can call it.",
+    preconditions: "The function is external/public and can be called "
+      + "by any address.",
+    impact: "Role takeover / asset transfer without permission if confirmed.",
     severityGuess: "High",
-    evidence: "Tulis state sensitif di fungsi " + fn.name
-      + " tanpa onlyOwner/onlyRole/require pengirim.",
-    toVerify: ["Periksa modifier & require di " + fn.name,
-      "cek apakah fungsi ini memang sengaja terbuka (mis. permissionless by design)",
-      "PoC fork: panggil dari alamat acak"],
+    evidence: "Writes sensitive state in function " + fn.name
+      + " without onlyOwner/onlyRole/a sender require.",
+    toVerify: ["Check modifiers & requires in " + fn.name,
+      "check whether this function is intentionally open (e.g. permissionless by design)",
+      "Fork PoC: call from a random address"],
     source: "pattern-scan",
   })];
 }
@@ -609,17 +609,17 @@ function detectDivisionNoGuard(fn, fileName, id) {
     if (allGuarded) continue;
     out.push(normalizeCandidate({
       id, detector: "division-no-guard",
-      title: "Pembagian tanpa guard nol pada " + denom,
+      title: "Division without a zero guard on " + denom,
       location: { file: fileName, function: fn.name },
-      hypothesis: "Fungsi " + fn.name + " membagi dengan " + denom
-        + " tanpa require(" + denom + " > 0) — bila penyebut 0, transaksi revert.",
-      preconditions: denom + " bisa mencapai 0 (mis. vault kosong / sebelum deposit pertama).",
-      impact: "DoS pada fungsi terkait; harga/nilai tidak terdefinisi saat penyebut 0.",
+      hypothesis: "Function " + fn.name + " divides by " + denom
+        + " without require(" + denom + " > 0) — if the denominator is 0, the transaction reverts.",
+      preconditions: denom + " can reach 0 (e.g. empty vault / before the first deposit).",
+      impact: "DoS on the related function; price/value undefined when the denominator is 0.",
       severityGuess: "Medium",
-      evidence: "Pembagian / " + denom + " di fungsi " + fn.name
-        + " tanpa guard nol di badan fungsi.",
-      toVerify: ["Cek apakah " + denom + " memang bisa 0 dari jalur mana pun",
-        "PoC fork: panggil saat " + denom + " == 0"],
+      evidence: "Pembagian / " + denom + " in function " + fn.name
+        + " without a zero guard in the function body.",
+      toVerify: ["Check whether " + denom + " can genuinely be 0 via any path",
+        "Fork PoC: call while " + denom + " == 0"],
       source: "pattern-scan",
     }));
     break; // satu kandidat divisi per fungsi sudah cukup
@@ -632,17 +632,17 @@ function detectEcrecoverNoZeroCheck(fn, fileName, id) {
   if (/address\s*\(\s*0\s*\)/.test(fn.body)) return [];
   return [normalizeCandidate({
     id, detector: "ecrecover-no-zero-check",
-    title: "Hasil ecrecover dipakai tanpa cek address(0)",
+    title: "ecrecover result used without an address(0) check",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " memakai hasil ecrecover tanpa "
-      + "require(signer != address(0)) — signature invalid menghasilkan "
-      + "address(0) yang bisa lolos bila logika membandingkannya.",
-    preconditions: "Signature (v/r/s) tidak valid / dibuat-buat.",
-    impact: "Klaim/otorisasi palsu bila address(0) lolos perbandingan.",
+    hypothesis: "Function " + fn.name + " uses the ecrecover result without "
+      + "require(signer != address(0)) — an invalid signature produces "
+      + "address(0) that could pass if the logic compares it.",
+    preconditions: "The signature (v/r/s) is invalid / forged.",
+    impact: "Forged claim/authorization if address(0) passes the comparison.",
     severityGuess: "Medium",
-    evidence: "ecrecover( di fungsi " + fn.name
-      + " tanpa kemunculan address(0) di badan fungsi.",
-    toVerify: ["Baca perbandingan signer di " + fn.name,
+    evidence: "ecrecover( in function " + fn.name
+      + " without any address(0) occurrence in the function body.",
+    toVerify: ["Read the signer comparison in " + fn.name,
       "PoC fork: kirim signature sampah (v/r/s acak)"],
     source: "pattern-scan",
   })];
@@ -652,16 +652,16 @@ function detectTxOrigin(fn, fileName, id) {
   if (!/tx\.origin/.test(fn.body)) return [];
   return [normalizeCandidate({
     id, detector: "tx-origin-auth",
-    title: "Otorisasi memakai tx.origin",
+    title: "Authorization uses tx.origin",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " memakai tx.origin untuk otorisasi — "
-      + "kontrak perantara/phishing bisa memanggilnya atas nama pemilik.",
-    preconditions: "Pemilik pernah berinteraksi dengan kontrak penyerang.",
-    impact: "Aksi atas nama pemilik tanpa persetujuan pemilik bila terkonfirmasi.",
+    hypothesis: "Function " + fn.name + " uses tx.origin for authorization — "
+      + "an intermediary/phishing contract can call it on the owner's behalf.",
+    preconditions: "The owner has previously interacted with the attacker's contract.",
+    impact: "Acting on behalf of the owner without the owner's consent, if confirmed.",
     severityGuess: "High",
-    evidence: "tx.origin di fungsi " + fn.name + ".",
-    toVerify: ["Cek konteks pemakaian tx.origin di " + fn.name,
-      "PoC fork: kontrak perantara memanggil fungsi ini"],
+    evidence: "tx.origin in function " + fn.name + ".",
+    toVerify: ["Check the tx.origin usage context in " + fn.name,
+      "Fork PoC: an intermediary contract calls this function"],
     source: "pattern-scan",
   })];
 }
@@ -677,17 +677,17 @@ function detectUncheckedCall(fn, fileName, id) {
     if (/require\s*\(/.test(line)) continue;
     return [normalizeCandidate({
       id, detector: "unchecked-call",
-      title: "Hasil external call diabaikan (unchecked call)",
+      title: "External call result ignored (unchecked call)",
       location: { file: fileName, function: fn.name },
-      hypothesis: "Fungsi " + fn.name + " memanggil .call tanpa memeriksa "
+      hypothesis: "Function " + fn.name + " calls .call without checking "
         + "return value, lalu melanjutkan seolah transfer berhasil.",
       preconditions: "Call gagal (mis. penerima revert / gas habis).",
-      impact: "State berubah seolah transfer sukses padahal gagal — akuntansi salah.",
+      impact: "State changes as if the transfer succeeded when it failed — wrong accounting.",
       severityGuess: "Medium",
-      evidence: ".call mandiri di baris " + (fn.startLine + k + 1)
-        + " tanpa penangkapan return / require.",
-      toVerify: ["Baca baris sekitar call di " + fn.name,
-        "PoC fork: buat call gagal lalu cek state sesudahnya"],
+      evidence: "standalone .call at line " + (fn.startLine + k + 1)
+        + " without return capture / require.",
+      toVerify: ["Read the lines around the call in " + fn.name,
+        "Fork PoC: make a call fail, then check the state afterwards"],
       source: "pattern-scan",
     })];
   }
@@ -826,25 +826,25 @@ function detectPermissionlessDispatcher(fn, fileName, id) {
   if (!sink) return [];
   const mkCandidate = (method, recv, args, viaAssembly) => normalizeCandidate({
     id, detector: "permissionless-dispatcher",
-    title: "Eksekutor arbitrary-call tanpa kontrol akses (permissionless dispatcher)",
+    title: "Arbitrary-call executor without access control (permissionless dispatcher)",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " mengeksekusi panggilan low-level "
-      + "ke target arbitrer (" + recv + ") dengan data arbitrer ("
-      + args.slice(0, 40) + ") tanpa modifier akses dan tanpa "
-      + "require(msg.sender == ...) — siapa pun bisa memanggilnya dan "
-      + "menjalankan call apa pun dengan saldo kontrak ini.",
-    preconditions: "Kontrak menampung dana (ETH/token) — mis. dari "
-      + "predispatch / deposit user — saat fungsi ini dipanggil penyerang.",
-    impact: "Pengurasan dana yang tersangkut di kontrak bila terkonfirmasi "
-      + "(kelas H3 Hyperbridge: residu predispatch 200 USDC dikuras via dispatch langsung).",
+    hypothesis: "Function " + fn.name + " executes a low-level call "
+      + "ke target arbitrer (" + recv + ") with arbitrary data ("
+      + args.slice(0, 40) + ") without an access modifier and without "
+      + "require(msg.sender == ...) — anyone can call it and "
+      + "execute any call with this contract's balance.",
+    preconditions: "The contract holds funds (ETH/tokens) — e.g. from "
+      + "predispatch / user deposits — when this function is called by the attacker.",
+    impact: "Draining of funds stuck in the contract if confirmed "
+      + "(Hyperbridge H3 class: 200 USDC of predispatch residue drained via direct dispatch).",
     severityGuess: "Medium",
-    evidence: "Low-level call " + method + " di fungsi " + fn.name
+    evidence: "Low-level call " + method + " in function " + fn.name
       + " — target `" + recv + "`, data `" + args.slice(0, 60)
-      + "`, tanpa guard akses di signature/badan"
+      + "`, without an access guard in the signature/body"
       + (viaAssembly ? " (via assembly)" : "") + ".",
-    toVerify: ["Cek modifier & require di " + fn.name,
-      "cek apakah kontrak ini memang menampung dana user sementara",
-      "PoC fork: panggil dari alamat acak dengan transfer token ke diri sendiri"],
+    toVerify: ["Check modifiers & requires in " + fn.name,
+      "check whether this contract really holds user funds temporarily",
+      "Fork PoC: call from a random address with a token transfer to itself"],
     source: "pattern-scan",
   });
   return [mkCandidate(sink.method, sink.recv, sink.args, sink.viaAssembly)];
@@ -1041,15 +1041,15 @@ function applyDustByDesign(candidates, signals, fileName, candidateNames) {
     }
     // Defensif (F14/F15): default dulu, severity diubah PALING AKHIR.
     c.evidence = (c.evidence || "") + " [dust-by-design: " + shown.join("; ")
-      + " — residu dispatcher didokumentasikan sebagai dust protokol; "
-      + "severity diturunkan Medium → Low. Wasit: verifikasi konteks "
-      + "dust ini di docs/kode sebelum menutup.]";
-    c.impact = (c.impact || "") + " (Bila dust-by-design terkonfirmasi, dampak realistis "
-      + "= Low/by-design — korban kehilangan jumlah yang sama dgn/tanpa "
-      + "penyerang; kelas H3 Hyperbridge gugur dengan alasan ini.)";
+      + " — dispatcher residue is documented as protocol dust; "
+      + "severity downgraded Medium → Low. Referee: verify the context "
+      + "this dust in the docs/code before closing.]";
+    c.impact = (c.impact || "") + " (If dust-by-design is confirmed, the realistic impact is "
+      + "= Low/by-design — the victim loses the same amount with/without "
+      + "attacker; the Hyperbridge H3 class died for this reason.)";
     c.toVerify = c.toVerify || [];
-    c.toVerify.push("Verifikasi konteks dust-by-design: baca docs/kode "
-      + "yang mendokumentasikan residu dispatcher sebagai dust protokol");
+    c.toVerify.push("Verify the dust-by-design context: read the docs/code "
+      + "that documents dispatcher residue as protocol dust");
     c.severityGuess = "Low";
     n++;
   }
@@ -1267,27 +1267,27 @@ function detectOneHopDispatcher(fns, fileName, startId, flaggedFns) {
           out.push(normalizeCandidate({
             id: "FA-" + String(n).padStart(3, "0"),
             detector: "permissionless-dispatcher",
-            title: "Eksekutor arbitrary-call tanpa kontrol akses (permissionless dispatcher, one-hop forwarder)",
+            title: "Arbitrary-call executor without access control (permissionless dispatcher, one-hop forwarder)",
             location: { file: fileName, function: fn.name },
-            hypothesis: "Fungsi " + fn.name + " meneruskan argumen kendali caller "
+            hypothesis: "Function " + fn.name + " meneruskan argumen kendali caller "
               + "ke dispatcher internal " + dName + " (sink: " + d.sink.method
-              + " ke `" + d.sink.recv + "` dengan data `" + d.sink.args.slice(0, 40)
-              + "`) — siapa pun bisa memanggil " + fn.name + " dan menjalankan "
-              + "call apa pun dengan saldo kontrak ini lewat satu hop.",
-            preconditions: "Kontrak menampung dana (ETH/token) saat fungsi ini dipanggil penyerang; "
-              + dName + " tidak punya guard sendiri.",
-            impact: "Pengurasan dana yang tersangkut di kontrak bila terkonfirmasi "
+              + " ke `" + d.sink.recv + "` with data `" + d.sink.args.slice(0, 40)
+              + "`) — anyone can call " + fn.name + " and executes "
+              + "any call with this contract's balance in one hop.",
+            preconditions: "The contract holds funds (ETH/tokens) when this function is called by an attacker; "
+              + dName + " has no guard of its own.",
+            impact: "Draining of funds stuck in the contract if confirmed "
               + "(kelas H3 Hyperbridge, varian forwarder).",
             severityGuess: "Medium",
-            evidence: "One-hop: `" + fn.name + "` -> `" + dName + "` — argumen posisi ke-"
-              + (i + 1) + " (`" + args[i].trim().slice(0, 40) + "`) memakai parameter caller dan "
-              + "mengalir ke parameter `" + pname + "` dispatcher (dipakai sebagai "
+            evidence: "One-hop: `" + fn.name + "` -> `" + dName + "` — positional argument #"
+              + (i + 1) + " (`" + args[i].trim().slice(0, 40) + "`) uses a caller parameter and "
+              + "mengalir ke parameter `" + pname + "` dispatcher (used as "
               + (d.targetParams.has(pname) ? "target" : "") + (d.targetParams.has(pname) && d.dataParams.has(pname) ? "/" : "")
-              + (d.dataParams.has(pname) ? "data" : "") + " sink), tanpa guard akses di "
+              + (d.dataParams.has(pname) ? "data" : "") + " sink), without an access guard in "
               + fn.name + ".",
-            toVerify: ["Cek modifier & require di " + fn.name + " dan " + dName,
-              "cek apakah kontrak ini memang menampung dana user sementara",
-              "PoC fork: panggil " + fn.name + " dari alamat acak dengan transfer token ke diri sendiri"],
+            toVerify: ["Check modifiers & requires in " + fn.name + " and " + dName,
+              "check whether this contract really holds user funds temporarily",
+              "PoC fork: panggil " + fn.name + " from a random address with a token transfer to itself"],
             source: "pattern-scan",
           }));
           n++;
@@ -1743,23 +1743,23 @@ function detectFullBalanceSweep(fn, fileName, id, ctx) {
   };
   const mkCandidate = (amountExpr) => normalizeCandidate({
     id, detector: "full-balance-sweep",
-    title: "Sweep escrow memakai saldo penuh kontrak perantara, bukan jumlah deklarasi",
+    title: "The escrow sweep uses the intermediary contract's full balance, not the declared amount",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " mentransfer sejumlah `" + amountExpr
-      + "` — saldo penuh sebuah kontrak perantara (balanceOf/balance) — "
-      + "bukan jumlah yang dideklarasikan di order. Kelebihan di atas "
-      + "jumlah deklarasi (mis. residu predispatch) ikut tersapu ke escrow.",
-    preconditions: "Ada residu dana di kontrak perantara saat sweep berjalan "
-      + "(mis. predispatch exact-output swap yang memakai kurang dari amountInMax).",
-    impact: "Residu user tersapu ke escrow / tidak kembali ke user; bila "
-      + "digabung eksekutor tanpa guard, residu bisa dikuras siapa saja.",
+    hypothesis: "Function " + fn.name + " mentransfer sejumlah `" + amountExpr
+      + "` — the full balance of an intermediary contract (balanceOf/balance) — "
+      + "not the amount declared in the order. The excess above "
+      + "the declared amount (e.g. predispatch residue) is swept along to escrow.",
+    preconditions: "There is fund residue in the intermediary contract while the sweep runs "
+      + "(e.g. a predispatch exact-output swap that uses less than amountInMax).",
+    impact: "User residue is swept to escrow / does not return to the user; if "
+      + "combined with an unguarded executor, the residue can be drained by anyone.",
     severityGuess: "Low",
-    evidence: "Jumlah `" + amountExpr + "` berasal dari balanceOf/balance "
-      + "kontrak perantara dan dipakai sebagai jumlah transfer/call di "
-      + "fungsi " + fn.name + ".",
-    toVerify: ["Baca assignment & pemakaian jumlah di " + fn.name,
-      "cek apakah kelebihan di atas jumlah deklarasi dikembalikan / dicatat",
-      "PoC fork: sisakan residu di perantara, lalu cek ke mana ia tersapu"],
+    evidence: "Amount `" + amountExpr + "` comes from balanceOf/balance "
+      + "intermediary contract and used as the transfer/call amount in "
+      + "function " + fn.name + ".",
+    toVerify: ["Read the assignment & amount usage in " + fn.name,
+      "check whether the excess above the declared amount is returned / recorded",
+      "Fork PoC: leave residue in the intermediary, then check where it gets swept"],
     source: "pattern-scan",
   });
   // 2. Pemakaian sebagai jumlah — posisi argumen EKSPLISIT via paren
@@ -2084,20 +2084,20 @@ function detectPermissionlessValueSend(fn, fileName, id) {
   };
   const mkCandidate = (method, recv, value) => normalizeCandidate({
     id, detector: "permissionless-value-send",
-    title: "Kirim ETH tanpa kontrol akses ke target pilihan caller (permissionless value-send)",
+    title: "Send ETH without access control to a caller-chosen target (permissionless value-send)",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " mengirim ETH (" + method + ") ke "
+    hypothesis: "Function " + fn.name + " sends ETH (" + method + ") ke "
       + "target pilihan caller (" + recv + ") sejumlah `" + value
-      + "` tanpa modifier akses dan tanpa require(msg.sender == ...) — "
-      + "siapa pun bisa memanggilnya dan menguras saldo ETH kontrak.",
-    preconditions: "Kontrak memegang ETH saat fungsi ini dipanggil penyerang.",
-    impact: "Pengurasan saldo ETH kontrak bila terkonfirmasi.",
+      + "` without an access modifier and without require(msg.sender == ...) — "
+      + "anyone can call it and drain the contract's ETH balance.",
+    preconditions: "The contract holds ETH when this function is called by an attacker.",
+    impact: "Draining of the contract's ETH balance if confirmed.",
     severityGuess: "Medium",
     evidence: method + " ke `" + recv + "` sejumlah `" + value
-      + "` di fungsi " + fn.name + ", tanpa guard akses di signature/badan.",
-    toVerify: ["Cek modifier & require di " + fn.name,
-      "cek apakah " + recv + " memang dipilih caller atau sudah ditentukan",
-      "PoC fork: panggil dari alamat acak ke alamat penyerang"],
+      + "` in function " + fn.name + ", without an access guard in the signature/body.",
+    toVerify: ["Check modifiers & requires in " + fn.name,
+      "check whether " + recv + " is really caller-chosen or predetermined",
+      "Fork PoC: call from a random address to the attacker's address"],
     source: "pattern-scan",
   });
   // Kumpulkan SEMUA pengiriman ETH (bentuk utama + bentuk bersarang),
@@ -2173,21 +2173,21 @@ function detectReplaySignature(fn, fileName, id) {
   if (/address\s*\(\s*this\s*\)/.test(fn.body)) return [];
   return [normalizeCandidate({
     id, detector: "replay-signature",
-    title: "Signature bisa di-replay: ecrecover tanpa nonce/domain separator",
+    title: "The signature can be replayed: ecrecover without nonce/domain separator",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " memverifikasi signature via "
-      + "ecrecover, tapi digest-nya tidak mengikat nonce, chainId, "
-      + "domain separator, atau address(this) — satu signature sah bisa "
-      + "dipakai ulang berkali-kali (dan di chain/deployment lain).",
-    preconditions: "Penyerang memperoleh satu signature valid "
-      + "(mis. dari klaim sah sebelumnya / signature yang bocor).",
-    impact: "Pencetakan saldo / klaim berulang tanpa batas bila terkonfirmasi.",
+    hypothesis: "Function " + fn.name + " verifies the signature via "
+      + "ecrecover, but its digest does not bind the nonce, chainId, "
+      + "domain separator, or address(this) — one valid signature can "
+      + "reused repeatedly (and on other chains/deployments).",
+    preconditions: "The attacker obtains one valid signature "
+      + "(e.g. from an earlier legitimate claim / a leaked signature).",
+    impact: "Unbounded balance minting / repeated claims if confirmed.",
     severityGuess: "High",
-    evidence: "ecrecover( di fungsi " + fn.name
-      + " tanpa nonce/chainId/domain separator/address(this) di badan fungsi.",
-    toVerify: ["Baca konstruksi digest di " + fn.name,
-      "cek apakah nonce disimpan & ditandai terpakai",
-      "PoC fork: panggil 2x dengan signature yang sama"],
+    evidence: "ecrecover( in function " + fn.name
+      + " without nonce/chainId/domain separator/address(this) in the function body.",
+    toVerify: ["Read the digest construction in " + fn.name,
+      "check whether the nonce is stored & marked used",
+      "Fork PoC: call 2x with the same signature"],
     source: "pattern-scan",
   })];
 }
@@ -2206,19 +2206,19 @@ function detectShareAccounting(fn, fileName, id, ctx) {
   if (/\btotalShares\s*=\s*totalShares\s*-/.test(fn.body)) return [];
   return [normalizeCandidate({
     id, detector: "share-accounting",
-    title: "Akuntansi share tidak berkurang saat penarikan",
+    title: "Share accounting does not decrease on withdrawal",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " mengurangi balances tapi tidak "
-      + "mengurangi shares/totalShares — akuntansi share tidak sinkron "
-      + "dengan saldo, sehingga sharePrice / nilai per share salah.",
-    preconditions: "Kontrak melacak shares/totalShares dan dipakai "
-      + "untuk menghitung harga atau nilai.",
-    impact: "Harga share salah; nilai klaim/penarikan tidak akurat.",
+    hypothesis: "Function " + fn.name + " decreases balances but does not "
+      + "decreases shares/totalShares — share accounting out of sync "
+      + "with a balance, so the sharePrice / per-share value is wrong.",
+    preconditions: "The contract tracks shares/totalShares and is used "
+      + "to compute a price or value.",
+    impact: "Wrong share price; inaccurate claim/withdrawal values.",
     severityGuess: "Low",
-    evidence: "balances[...] -= di fungsi " + fn.name
-      + " tanpa shares[...] -= / totalShares -= di badan fungsi.",
-    toVerify: ["Cek pemakaian shares/totalShares di " + fn.name
-      + " dan fungsi lain", "PoC fork: deposit → withdraw → baca sharePrice"],
+    evidence: "balances[...] -= in function " + fn.name
+      + " without shares[...] -= / totalShares -= in the function body.",
+    toVerify: ["Check shares/totalShares usage in " + fn.name
+      + " and other functions", "Fork PoC: deposit → withdraw → read sharePrice"],
     source: "pattern-scan",
   })];
 }
@@ -2468,23 +2468,23 @@ function detectCommentedOutCheck(fn, fileName, id, ctx) {
     if (cof3HasLiveEquivalent(fn.body, text)) continue;
     return [normalizeCandidate({
       id, detector: "commented-out-check",
-      title: "Cek keamanan dikomentari (commented-out check)",
+      title: "Commented-out security check",
       location: { file: fileName, function: fn.name },
-      hypothesis: "Fungsi " + fn.name + " mengandung cek keamanan yang "
-        + "dikomentari (baris " + (c.line + 1) + ": \"" + text.slice(0, 90)
-        + "\") — pertahanan yang seharusnya aktif justru dimatikan, "
-        + "sehingga jalur yang tadinya ditolak kini lolos.",
-      preconditions: "Cek yang dikomentari memang load-bearing (bukan "
-        + "duplikat cek lain yang masih aktif di jalur yang sama).",
-      impact: "Validasi hilang: batas/izin yang seharusnya ditegakkan "
-        + "tidak lagi ditegakkan bila terkonfirmasi.",
+      hypothesis: "Function " + fn.name + " contains a security check that "
+        + "commented out (line " + (c.line + 1) + ": \"" + text.slice(0, 90)
+        + "\") — a defense that should be active is disabled instead, "
+        + "so the path that used to be rejected now passes.",
+      preconditions: "The commented-out check really is load-bearing (not "
+        + "a duplicate of another check still active on the same path).",
+      impact: "Missing validation: limits/permissions that should be enforced "
+        + "no longer enforced if confirmed.",
       severityGuess: "Medium",
-      evidence: "Komentar cek di baris " + (c.line + 1)
-        + " dalam fungsi " + fn.name + ": " + text.slice(0, 120),
-      toVerify: ["Baca fungsi " + fn.name + " lengkap: cek apa yang dimatikan",
-        "bandingkan dengan upstream / versi sebelumnya (git history / diff)",
-        "cek apakah cek pengganti masih aktif di jalur yang sama",
-        "PoC fork: panggil jalur yang tadinya ditolak cek tersebut"],
+      evidence: "Check comment at line " + (c.line + 1)
+        + " in function " + fn.name + ": " + text.slice(0, 120),
+      toVerify: ["Read function " + fn.name + " in full: check what was disabled",
+        "compare with upstream / the previous version (git history / diff)",
+        "check whether a replacement check is still active on the same path",
+        "Fork PoC: call the path that check used to reject"],
       source: "pattern-scan",
     })];
   }
@@ -2576,24 +2576,24 @@ function detectCommentedOutFunction(fileName, idStart, ctx) {
   return items.map((it, n) => normalizeCandidate({
     id: "FA-" + String(idStart + n).padStart(3, "0"),
     detector: "commented-out-function",
-    title: "Fungsi utuh dikomentari (commented-out function)",
+    title: "Whole function commented out (commented-out function)",
     location: { file: fileName, function: it.name },
-    hypothesis: "Fungsi " + it.name + " dikomentari UTUH (blok komentar "
-      + "baris " + (it.startLine + 1) + "–" + (it.endLine + 1) + ") — "
-      + "fungsionalitas yang seharusnya ada justru tidak ada di "
-      + "bytecode: tidak ada jalur yang bisa menjalankan logika ini.",
-    preconditions: "Fungsi yang dikomentari memang load-bearing "
-      + "(bukan fungsi mati / sudah diganti jalur lain yang aktif).",
-    impact: "Kemampuan yang dimatikan tidak bisa dipakai: batas/izin/"
-      + "pengaturan yang diatur fungsi ini tidak lagi bisa diubah.",
+    hypothesis: "Function " + it.name + " commented out ENTIRELY (comment block "
+      + "line " + (it.startLine + 1) + "–" + (it.endLine + 1) + ") — "
+      + "functionality that should exist is missing in "
+      + "bytecode: no path can execute this logic.",
+    preconditions: "The commented-out function really is load-bearing "
+      + "(not a dead function / already replaced by another active path).",
+    impact: "The disabled capability cannot be used: limits/permissions/"
+      + "the setting this function controls can no longer be changed.",
     severityGuess: "Medium",
-    evidence: "Definisi fungsi " + it.name + " di dalam blok komentar "
-      + "(baris " + (it.startLine + 1) + "–" + (it.endLine + 1) + "): "
+    evidence: "Definition of function " + it.name + " inside the comment block "
+      + "(line " + (it.startLine + 1) + "–" + (it.endLine + 1) + "): "
       + it.text.replace(/\s+/g, " ").trim().slice(0, 140),
-    toVerify: ["Baca blok komentar lengkap: fungsi apa yang dimatikan",
-      "bandingkan dengan upstream / versi sebelumnya (git history / diff)",
-      "cek apakah jalur pengganti masih aktif di tempat lain",
-      "PoC fork: panggil jalur yang bergantung pada fungsi ini"],
+    toVerify: ["Read the full comment block: what function was disabled",
+      "compare with upstream / the previous version (git history / diff)",
+      "check whether a replacement path is still active elsewhere",
+      "Fork PoC: call the path that depends on this function"],
     source: "pattern-scan",
     ...(it.hasBody ? { commentedHasBody: true } : {}),
   }));
@@ -2658,27 +2658,27 @@ function detectEnumSemanticShift(source, fileName, idStart, opts) {
       detector: "enum-semantic-shift",
       title: "Pergeseran semantik enum vs baseline (" + te.name + ")",
       location: { file: fileName, function: te.name },
-      hypothesis: "Enum " + te.name + " di fork ini berbeda dari "
-        + "baseline " + baseName + ": member yang bertahan bergeser "
-        + "nilai numeriknya (" + shifts.join(", ") + ")"
-        + (removed.length ? "; dihapus: " + removed.join(", ") : "")
-        + (added.length ? "; ditambah: " + added.join(", ") : "")
-        + ". Kode/integrator yang mengirim nilai mentah konvensi "
-        + "upstream bisa kena revert — atau diam-diam mendapat arti "
-        + "yang berbeda.",
-      preconditions: "Enum ini dipakai lintas kontrak / lewat ABI "
-        + "(parameter fungsi, event, atau nilai mentah dari integrator).",
-      impact: "Compat break: nilai enum mentah konvensi upstream "
-        + "berarti lain / revert di fork — integrator bisa diam-diam "
-        + "mendapat mode yang salah (mis. utang variable, bukan stable).",
+      hypothesis: "Enum " + te.name + " in this fork differs from "
+        + "baseline " + baseName + ": surviving members shift "
+        + "its numeric value (" + shifts.join(", ") + ")"
+        + (removed.length ? "; removed: " + removed.join(", ") : "")
+        + (added.length ? "; added: " + added.join(", ") : "")
+        + ". Code/integrators sending raw values under the convention "
+        + "upstream can hit a revert — or silently gains a meaning "
+        + "that differs.",
+      preconditions: "This enum is used cross-contract / via the ABI "
+        + "(function parameter, event, or raw value from an integrator).",
+      impact: "Compat break: raw enum value under the upstream convention "
+        + "means something else / reverts in the fork — an integrator can silently "
+        + "gets the wrong mode (e.g. variable debt, not stable).",
       severityGuess: "Low",
       evidence: "Baseline " + baseName + ": enum " + te.name + " {"
         + be.members.join(", ") + "}; fork: {" + te.members.join(", ")
-        + "}; geser nilai: " + shifts.join(", "),
-      toVerify: ["Baca pemakaian enum ini di seluruh codebase (parameter fungsi / ABI)",
-        "cek apakah integrator / UI mengirim nilai mentah",
-        "bandingkan dengan versi upstream yang dipakai fork ini",
-        "PoC fork: panggil dengan nilai mentah konvensi upstream"],
+        + "}; shifted value: " + shifts.join(", "),
+      toVerify: ["Read this enum's usage across the codebase (function parameters / ABI)",
+        "check whether the integrator / UI sends raw values",
+        "compare with the upstream version this fork uses",
+        "Fork PoC: call with a raw value under the upstream convention"],
       source: "pattern-scan",
     }));
   }
@@ -2783,33 +2783,33 @@ function detectOraclePassthrough(fn, fileName, id) {
   const m = fn.body.match(PRICE_READ_RE);
   return [normalizeCandidate({
     id, detector: "oracle-passthrough-no-staleness",
-    title: "Harga oracle dipakai tanpa cek staleness",
+    title: "Oracle price used without a staleness check",
     location: { file: fileName, function: fn.name },
-    hypothesis: "Fungsi " + fn.name + " membaca harga ("
+    hypothesis: "Function " + fn.name + " reads the price ("
       + (m ? m[0].trim() : "?")
-      + ") tanpa memeriksa umur data (updatedAt vs block.timestamp / "
-      + "answeredInRound) — bila feed macet atau updater berhenti, "
-      + "harga basi tetap dipakai untuk valuasi/likuidasi.",
-    preconditions: "Feed/oracle di belakang panggilan ini bisa basi "
-      + "(updater berhenti, sequencer down, feed tidak diperbarui).",
-    impact: "Valuasi agunan/utang memakai harga basi — likuidasi salah "
-      + "atau utang dinilai terlalu rendah/tinggi bila terkonfirmasi.",
+      + ") without checking the data's age (updatedAt vs block.timestamp / "
+      + "answeredInRound) — if the feed stalls or the updater stops, "
+      + "the stale price is still used for valuation/liquidation.",
+    preconditions: "The feed/oracle behind this call can go stale "
+      + "(updater stopped, sequencer down, feed not updated).",
+    impact: "Collateral/debt valuation uses a stale price — wrong liquidation "
+      + "or debt is valued too low/high if confirmed.",
     severityGuess: "Low",
-    evidence: "Panggilan baca harga di fungsi " + fn.name
-      + " tanpa cek staleness di badan fungsi.",
-    toVerify: ["Baca implementasi oracle di belakang panggilan ini: "
-      + "apakah ia sendiri memvalidasi staleness (updatedAt/heartbeat)?",
-      "cek apakah ada PriceOracleSentinel / grace period di jalur pemakaian",
-      "bandingkan dengan upstream (baseline): bila pola sama persis "
-      + "dengan upstream, ini by-design / known-issue, bukan deviasi fork",
-      "cek live: updatedAt feed vs block.timestamp saat ini",
-      "NAIKKAN ke Medium hanya bila ketiganya terpenuhi: (1) harga dipakai "
-      + "untuk valuasi agunan/utang, likuidasi, mint, atau redeem; (2) "
-      + "staleness realistis untuk feed itu (heartbeat panjang, "
-      + "latestAnswer deprecated, L2 tanpa sentinel); (3) tidak ada guard "
+    evidence: "Price-read call in function " + fn.name
+      + " without a staleness check in the function body.",
+    toVerify: ["Read the oracle implementation behind this call: "
+      + "does it validate staleness itself (updatedAt/heartbeat)?",
+      "check whether there is a PriceOracleSentinel / grace period on the usage path",
+      "compare with upstream (baseline): if the pattern is identical "
+      + "with upstream, this is by-design / a known issue, not a fork deviation",
+      "live check: the feed's updatedAt vs the current block.timestamp",
+      "RAISE to Medium only if all three hold: (1) the price is used "
+      + "for collateral/debt valuation, liquidation, mint, or redeem; (2) "
+      + "realistic staleness for that feed (long heartbeat, "
+      + "latestAnswer deprecated, L2 without a sentinel); (3) there is no guard "
       + "di jalur lain (fallback oracle / sentinel / circuit breaker). "
-      + "High hanya bila PoC menunjukkan selisih harga basi bisa diubah "
-      + "menjadi borrow berlebih"],
+      + "High only if a PoC shows the stale-price gap can be turned "
+      + "becomes excess borrowing"],
     source: "pattern-scan",
   })];
 }
@@ -2899,26 +2899,26 @@ function detectFreeMemPointer(fn, fileName, id) {
       if (sizedVars.has(trimmed)) {
         return [normalizeCandidate({
           id, detector: "free-mem-pointer-no-rounding",
-          title: "Free-memory pointer di-update tanpa pembulatan 32 byte (Info)",
+          title: "Free-memory pointer updated without 32-byte rounding (Info)",
           location: { file: fileName, function: fn.name },
-          hypothesis: "Fungsi " + fn.name + " meng-update free-memory pointer "
-            + "di assembly dengan nilai dari variabel `" + trimmed + "` yang "
-            + "berisi penjumlahan ukuran data-dependent tanpa pembulatan "
+          hypothesis: "Function " + fn.name + " meng-update free-memory pointer "
+            + "in assembly with a value from variable `" + trimmed + "` that "
+            + "contains a data-dependent size addition without rounding "
             + "ke kelipatan 32 byte.",
-          preconditions: "Jumlah byte yang ditambahkan bukan kelipatan 32 "
-            + "(mis. panjang payload arbitrer).",
+          preconditions: "The number of bytes added is not a multiple of 32 "
+            + "(e.g. arbitrary payload length).",
           impact: "Info saja (terkalibrasi PoC Foundry 8/8 PASS, sesi BB "
-            + "14 Nov): misalignment NYATA tapi TIDAK ada korupsi data — "
-            + "memori EVM byte-addressable dan alokasi relatif; jangan "
-            + "naikkan ke Medium tanpa bukti korupsi baru.",
+            + "14 Nov): REAL misalignment but NO data corruption — "
+            + "EVM memory is byte-addressable and allocation is relative; do not "
+            + "raise it to Medium without new corruption proof.",
           severityGuess: "Info",
-          evidence: "mstore ke free-memory pointer di fungsi " + fn.name
-            + " dengan nilai variabel `" + trimmed + "` (add() berukuran "
-            + "data-dependent tanpa idiom pembulatan 32 byte).",
-          toVerify: ["Baca blok assembly lengkap di " + fn.name,
-            "cek apakah nilai yang ditambahkan selalu kelipatan 32",
-            "PoC fork: alokasi berurutan dengan panjang non-kelipatan-32, "
-            + "cek integritas data"],
+          evidence: "mstore to the free-memory pointer in function " + fn.name
+            + " with the variable value `" + trimmed + "` (add() berukuran "
+            + "data-dependent without the 32-byte rounding idiom).",
+          toVerify: ["Read the full assembly block in " + fn.name,
+            "check whether the added value is always a multiple of 32",
+            "Fork PoC: sequential allocations with non-multiple-of-32 lengths, "
+            + "check data integrity"],
           source: "pattern-scan",
         })];
       }
@@ -2929,26 +2929,26 @@ function detectFreeMemPointer(fn, fileName, id) {
     if (ROUNDING_RE.test(expr)) continue; // sudah dibulatkan
     return [normalizeCandidate({
       id, detector: "free-mem-pointer-no-rounding",
-      title: "Free-memory pointer di-update tanpa pembulatan 32 byte (Info)",
+      title: "Free-memory pointer updated without 32-byte rounding (Info)",
       location: { file: fileName, function: fn.name },
-      hypothesis: "Fungsi " + fn.name + " meng-update free-memory pointer "
-        + "di assembly dengan penjumlahan ukuran data-dependent tanpa "
-        + "pembulatan ke kelipatan 32 byte — pointer bebas berikutnya "
-        + "bisa tidak sejajar 32 byte.",
-      preconditions: "Jumlah byte yang ditambahkan bukan kelipatan 32 "
-        + "(mis. panjang payload arbitrer).",
+      hypothesis: "Function " + fn.name + " meng-update free-memory pointer "
+        + "in assembly with a data-dependent size addition without "
+        + "rounding to a multiple of 32 bytes — the next free pointer "
+        + "can be misaligned by 32 bytes.",
+      preconditions: "The number of bytes added is not a multiple of 32 "
+        + "(e.g. arbitrary payload length).",
       impact: "Info saja (terkalibrasi PoC Foundry 8/8 PASS, sesi BB "
-        + "14 Nov): misalignment NYATA tapi TIDAK ada korupsi data — "
-        + "memori EVM byte-addressable dan alokasi relatif; jangan "
-        + "naikkan ke Medium tanpa bukti korupsi baru.",
+        + "14 Nov): REAL misalignment but NO data corruption — "
+        + "EVM memory is byte-addressable and allocation is relative; do not "
+        + "raise it to Medium without new corruption proof.",
       severityGuess: "Info",
-      evidence: "mstore ke free-memory pointer di fungsi " + fn.name
-        + " dengan nilai add(...) berukuran data-dependent tanpa idiom "
+      evidence: "mstore to the free-memory pointer in function " + fn.name
+        + " with an add(...) value of data-dependent size without the idiom "
         + "pembulatan 32 byte.",
-      toVerify: ["Baca blok assembly lengkap di " + fn.name,
-        "cek apakah nilai yang ditambahkan selalu kelipatan 32",
-        "PoC fork: alokasi berurutan dengan panjang non-kelipatan-32, "
-        + "cek integritas data"],
+      toVerify: ["Read the full assembly block in " + fn.name,
+        "check whether the added value is always a multiple of 32",
+        "Fork PoC: sequential allocations with non-multiple-of-32 lengths, "
+        + "check data integrity"],
       source: "pattern-scan",
     })];
   }
@@ -3133,54 +3133,54 @@ function detectVacuousIdentityCheck(fn, fileName, id) {
   const gateText = (camel && !/AndAbove/.test(camel[0]) ? camel[0]
     : (tail.match(VIC_MOD_ROLE_RE) || ["?"])[0]);
   const hypothesis = best.cls === "dos"
-    ? "Fungsi " + fn.name + " hanya bisa dipanggil kontrak perantara ("
+    ? "Function " + fn.name + " can only be called by an intermediary contract ("
       + gateText + ") tapi memeriksa `" + best.other + " " + best.op
       + " msg.sender` (" + best.text + ") di " + best.ctx
       + " — msg.sender di sini selalu perantara, jadi guard ini SELALU "
-      + "gagal dan fungsi tidak pernah jalan (DoS fungsional), bukan "
-      + "bypass — periksa apakah fungsi ini satu-satunya jalur untuk "
+      + "fails and the function never runs (functional DoS), not "
+      + "bypass — check whether this function is the only path for "
       + "aksi itu."
     : best.cls === "info"
-      ? "Fungsi " + fn.name + " hanya bisa dipanggil kontrak perantara ("
-        + gateText + ") dan membandingkan msg.sender dengan `" + best.other
-        + "` (" + best.text + ") — `" + best.other + "` adalah identitas "
-        + "perantara itu sendiri, jadi cek ini redundan (selalu benar) — "
-        + "Info saja, bukan bypass."
-      : "Fungsi " + fn.name + " hanya bisa dipanggil kontrak perantara ("
-        + gateText + ") tapi membandingkan msg.sender dengan `" + best.other
+      ? "Function " + fn.name + " can only be called by an intermediary contract ("
+        + gateText + ") and compares msg.sender with `" + best.other
+        + "` (" + best.text + ") — `" + best.other + "` is the identity "
+        + "the intermediary itself, so this check is redundant (always true) — "
+        + "Info only, not a bypass."
+      : "Function " + fn.name + " can only be called by an intermediary contract ("
+        + gateText + ") but compares msg.sender with `" + best.other
         + "` (" + best.text + ") — msg.sender di sini selalu perantara, "
-        + "tidak pernah end-user, jadi cek identitas itu tidak pernah "
-        + "menangkap kasus yang dimaksud (mis. self-referral lolos).";
+        + "never the end-user, so that identity check never "
+        + "catch the intended case (e.g. self-referral passes).";
   return [normalizeCandidate({
     id, detector: "vacuous-identity-check",
     title: best.cls === "dos"
-      ? "Guard identitas yang selalu revert di fungsi handler-only"
+      ? "Identity guard that always reverts in a handler-only function"
       : best.cls === "info"
-        ? "Cek identitas redundan terhadap perantara di fungsi handler-only"
-        : "Cek identitas msg.sender yang vacuous di fungsi handler-only",
+        ? "Check the identity redundant against the intermediary in the handler-only function"
+        : "Check the vacuous msg.sender identity in the handler-only function",
     location: { file: fileName, function: fn.name },
     hypothesis,
-    preconditions: "Fungsi dipanggil lewat kontrak perantara (handler / "
-      + "router / relayer), bukan langsung oleh end-user.",
+    preconditions: "The function is called via an intermediary contract (handler / "
+      + "router / relayer), not directly by the end-user.",
     impact: best.cls === "dos"
-      ? "Fungsi tidak pernah bisa jalan lewat jalur ini — aksi yang "
-        + "seharusnya tersedia (mis. set referral, withdraw, likuidasi) "
-        + "terblokir selama guard ini ada."
+      ? "The function can never run via this path — the action that "
+        + "that should be available (e.g. set referral, withdraw, liquidation) "
+        + "blocked while this guard exists."
       : best.cls === "info"
-        ? "Tidak ada dampak keamanan — cek redundan, hanya noise."
-        : "Guard identitas yang dimaksudkan (mis. larangan self-referral) "
-          + "tidak berlaku di jalur ini — aturan bisa dilewati dari panggilan "
-          + "perantara bila terkonfirmasi.",
+        ? "No security impact — redundant check, noise only."
+        : "The intended identity guard (e.g. the self-referral ban) "
+          + "does not apply on this path — the rule can be bypassed from a call "
+          + "intermediary if confirmed.",
     severityGuess: best.severityGuess,
-    evidence: "Perbandingan msg.sender vs `" + best.other + "` di fungsi "
-      + fn.name + " yang ber-modifier perantara (" + best.text
+    evidence: "Perbandingan msg.sender vs `" + best.other + "` in function "
+      + fn.name + " that carries an intermediary modifier (" + best.text
       + "; konteks " + best.ctx + ", kelas " + best.cls + ").",
-    toVerify: ["Baca siapa pemegang peran perantara itu (kontrak vs EOA) "
-      + "dan siapa yang memanggil fungsi ini",
-      "bandingkan dengan jalur pemanggilan langsung (bila ada) — apakah "
-      + "cek yang sama di sana bermakna?",
-      "PoC fork: panggil lewat perantara dengan identitas sendiri sebagai "
-      + "parameter dan lihat apakah guard menangkapnya"],
+    toVerify: ["Read who holds that intermediary role (contract vs EOA) "
+      + "and who calls this function",
+      "compare with the direct call path (if any) — whether "
+      + "does the same check mean anything there?",
+      "Fork PoC: call via the intermediary with its own identity as "
+      + "parameters and see whether the guard catches it"],
     source: "pattern-scan",
   })];
 }
@@ -3800,7 +3800,7 @@ function classifyVarOccurrence(clean, i, name) {
   if (prevCh === ".") {
     let q = p - 1;
     while (q >= 0 && /[\w$]/.test(clean[q])) q--;
-    // `this.name` dan `super.name` membaca var file ini (F16: getter
+    // `this.name` and `super.name` membaca var file ini (F16: getter
     // kontrak induk via super adalah baca, bukan member-call).
     const objName = clean.slice(q + 1, p);
     if (objName === "this" || objName === "super") return "read";
@@ -4026,9 +4026,9 @@ function findDeadConfigVars(source) {
       // P3: tulis HANYA di constructor → bukan config (bukan pola R-02).
       if (a.writes.every((w) => w.fn === "constructor")) continue;
       const infoReasons = [];
-      if (a.memberCalls > 0) infoReasons.push("member-call: getter `.name(` dibaca di instance/kontrak lain (P1)");
-      if (d.override) infoReasons.push("override-getter: getter interface, dibaca off-chain/lewat interface (F14)");
-      if (rawSlot) infoReasons.push("raw-slot: assembly sload/sstore slot angka di file ini (P10)");
+      if (a.memberCalls > 0) infoReasons.push("member-call: the `.name(` getter is read on another instance/contract (P1)");
+      if (d.override) infoReasons.push("override-getter: interface getter, read off-chain/via the interface (F14)");
+      if (rawSlot) infoReasons.push("raw-slot: assembly sload/sstore numeric slot in this file (P10)");
       // F6 (heuristik): kontrak abstract + var non-public → pembaca bisa
       // ada di kontrak turunan file lain. Single-file (runPipeline) ini
       // tetap Info; bila dijalankan lewat runProjectPipeline,
@@ -4038,7 +4038,7 @@ function findDeadConfigVars(source) {
       const isAbstract = ownerC && ownerC.kind === "contract"
         && /\babstract\b/.test(clean.slice(Math.max(0, ownerC.start - 16), ownerC.start));
       if (isAbstract && !d.isPublic) {
-        infoReasons.push("abstract-internal: mungkin dibaca kontrak turunan file lain (F6)");
+        infoReasons.push("abstract-internal: may be read by a derived contract in another file (F6)");
       }
       out.push({
         name: a.name, declLine: a.declLine,
@@ -4470,31 +4470,31 @@ function detectEmptySublistProofAdvancesHeight(source, fileName, idStart) {
   return [normalizeCandidate({
     id: "FA-" + String(idStart).padStart(3, "0"),
     detector: "empty-sublist-proof-advances-height",
-    title: "Bukti konsensus sub-daftar kosong memajukan height + stale-rejection menyensor bukti jujur",
+    title: "Empty sub-list consensus proof advances the height + stale-rejection censors honest proofs",
     location: { file: fileName, function: fnName },
-    hypothesis: "Verifikasi bukti dilewati bila sub-daftar kosong (`if (len > 0)`, baris "
-      + (gate.line + 1) + ") — tanpa bukti, tanpa commitment tersimpan — tapi height tetap maju ("
-      + "penugasan height, baris " + (advance.line + 1) + "); proof jujur untuk blok yang sama "
-      + "kemudian ditolak stale-check (baris " + (stale.line + 1) + ") sehingga commitment blok itu hilang "
-      + "sampai commitment berikutnya.",
-    preconditions: "Penyerang mengirim proof konsensus valid (tanda tangan quorum) dengan sub-daftar kosong "
-      + "SEBELUM relayer jujur mengirim proof blok yang sama; relayer jujur tidak bisa memaksa commitment "
-      + "blok itu masuk sesudah height maju.",
-    impact: "Sensor satu interval komitmen per tx penyerang (liveness/censorship, bukan fund-loss): pesan "
-      + "ISMP untuk blok itu tertunda sampai commitment berikut; header masih bisa dibuktikan ulang di "
-      + "commitment berikut selama belum tersupersi. Biaya penyerang = gas verifikasi ECDSA per interval.",
+    hypothesis: "Verification proof is skipped when the sub-list is empty (`if (len > 0)`, line "
+      + (gate.line + 1) + ") — without proof, without a stored commitment — but the height still advances ("
+      + "height assignment, line " + (advance.line + 1) + "); an honest proof for the same block "
+      + "then rejected by the stale-check (line " + (stale.line + 1) + ") so that block's commitment is lost "
+      + "until the next commitment.",
+    preconditions: "The attacker sends a valid consensus proof (quorum signatures) with an empty sub-list "
+      + "BEFORE an honest relayer submits a proof of the same block; the honest relayer cannot force the commitment "
+      + "that block enters after the height has advanced.",
+    impact: "Censoring one commitment interval per attacker tx (liveness/censorship, not fund-loss): messages "
+      + "ISMP for that block is delayed until the next commitment; the header can still be re-proven at "
+      + "the next commitment until it is superseded. Attacker cost = ECDSA verification gas per interval.",
     severityGuess: "Low",
-    evidence: "Gerbang panjang-kosong baris " + (gate.line + 1) + " (`if ("
+    evidence: "Empty-length gate line " + (gate.line + 1) + " (`if ("
       + (gate.lenVar ? gate.lenVar + " > 0" : gate.listExpr + ".length > 0")
-      + ")` berisi panggilan verifikasi, tanpa guard require/revert bila kosong)"
-      + "; penugasan height baris " + (advance.line + 1)
-      + "; stale-check baris " + (stale.line + 1) + " (`latestHeight >= ...blockNumber` + return/revert)"
-      + "; keterkaitan jalur: stale-check memanggil fungsi gerbang + fungsi penugasan height.",
-    toVerify: ["Baca fungsi verifikasi utuh: apakah daftar kosong benar-benar mengembalikan tanpa bukti DAN tanpa revert",
-      "cek apakah height maju di jalur yang sama (state yang sama dengan stale-check)",
-      "cek apakah commitment sub-daftar yang kosong itu memang hilang (bukan disimpan di tempat lain)",
-      "cek apakah sub-daftar kosong terikat ke komitmen (hash/leafCount) — bila kosong itu sah secara kriptografis, kandidat ini gugur",
-      "PoC fork butuh fixture bukti konsensus asli (tanda tangan validator 2/3 + MMR proof blok relay nyata) — tanpa itu, verifikasi berhenti di code-trace"],
+      + ")` contains a verification call, without a require/revert guard when empty)"
+      + "; height assignment line " + (advance.line + 1)
+      + "; stale-check line " + (stale.line + 1) + " (`latestHeight >= ...blockNumber` + return/revert)"
+      + "; path linkage: the stale-check calls the gate function + the height-assignment function.",
+    toVerify: ["Read the full verification function: does an empty list really return without proof AND without reverting",
+      "check whether the height advances on the same path (same state as the stale-check)",
+      "check whether the empty sub-list commitment really is missing (not stored elsewhere)",
+      "check whether the empty sub-list is bound to the commitment (hash/leafCount) — if empty is cryptographically valid, this candidate dies",
+      "A fork PoC needs a real consensus-proof fixture (2/3 validator signatures + an MMR proof of a real relay block) — without it, verification stops at the code trace"],
     source: "pattern-scan",
   })];
 }
@@ -4956,38 +4956,38 @@ function detectJitRewardAccrualSandwich(source, fileName, idStart, opts) {
     seenPools.add(c + "::" + pool);
     const severity = (fee.kind === "zero" || fee.kind === "absent") ? "Medium" : "Low";
     const feeNote = fee.kind === "zero"
-      ? "fee keluar `" + fee.var + "` default-0 (dideklarasi tanpa initializer atau `= 0`)"
+      ? "exit fee `" + fee.var + "` default-0 (declared without an initializer or `= 0`)"
       : fee.kind === "absent"
-        ? "tidak ada perhitungan fee keluar di file ini (tanpa friksi)"
+        ? "there is no exit-fee computation in this file (no friction)"
         : fee.kind === "nonzero"
-          ? "fee keluar `" + fee.var + "` ter-init nonzero (friksi ada, tapi belum tentu menutup capture)"
-          : "fee keluar `" + fee.var + "` dipakai tapi deklarasinya tidak ditemukan di file ini (nilai live tak diketahui)";
+          ? "exit fee `" + fee.var + "` initialized nonzero (friction exists, but does not necessarily close the capture)"
+          : "exit fee `" + fee.var + "` is used but its declaration was not found in this file (live value unknown)";
     out.push(normalizeCandidate({
       id: "FA-" + String(idStart + out.length).padStart(3, "0"),
       detector: "jit-reward-accrual-sandwich",
-      title: "Sandwich JIT reward-accrual: stake sebelum accrual, kunci rate sesudah",
+      title: "JIT reward-accrual sandwich: stake before the accrual, lock the rate after ",
       location: { file: fileName, function: accrualFn.name },
-      hypothesis: "Fungsi `" + accrualFn.name + "` (baris " + (lineOf(accrualFn.startIndex) + 1)
-        + ") menambah `" + pool + "` tanpa mint share — harga share naik untuk semua pemegang. `"
-        + stakeFn.name + "` (baris " + (lineOf(stakeFn.startIndex) + 1)
-        + ") mint share pada rate pra-accrual, dan `" + exit.fn.name + "` (baris "
-        + (lineOf(exit.fn.startIndex) + 1) + ") mengunci rate pasca-accrual (`"
+      hypothesis: "Function `" + accrualFn.name + "` (line " + (lineOf(accrualFn.startIndex) + 1)
+        + ") adds `" + pool + "` without minting shares — the share price rises for all holders. `"
+        + stakeFn.name + "` (line " + (lineOf(stakeFn.startIndex) + 1)
+        + ") mints shares at the pre-accrual rate, and `" + exit.fn.name + "` (line "
+        + (lineOf(exit.fn.startIndex) + 1) + ") locks the post-accrual rate (`"
         + (exit.formula.rateVar || "exchangeRate") + " = (" + pool + " * ...) / " + exit.formula.total
-        + "`) lalu membakar share — penyerang yang stake tepat sebelum accrual dan request-unbond "
-        + "tepat sesudahnya menguras bagian reward milik staker lama. " + feeNote + ".",
-      preconditions: "Accrual dipanggil pada jadwal yang dapat diprediksi penyerang (bot terjadwal / tx terlihat di mempool); tidak ada jeda minimum stake→unbond; " + feeNote + ".",
-      impact: "Ekstraksi berulang reward staker lama — per siklus, bagian penyerang ≈ stake / (pool + stake) × reward yang diakru; tanpa fee dan tanpa jeda, profit hanya dibatasi gas + ukuran pool.",
+        + "`) then burns shares — an attacker who stakes right before the accrual and requests unbond "
+        + "right after it, drains the reward share belonging to old stakers. " + feeNote + ".",
+      preconditions: "Accrual is called on a schedule predictable to an attacker (scheduled bot / tx visible in the mempool); no minimum stake→unbond delay; " + feeNote + ".",
+      impact: "Repeated extraction of old stakers' rewards — per cycle, the attacker's share ≈ stake / (pool + stake) × the accrued reward; with no fee and no delay, profit is bounded only by gas + pool size.",
       severityGuess: severity,
-      evidence: "Accrual `" + accrualFn.name + "` (baris " + (lineOf(accrualFn.startIndex) + 1) + "): `"
-        + pool + " += <param>` tanpa `_mint`; stake `" + stakeFn.name + "` (baris "
+      evidence: "Accrual `" + accrualFn.name + "` (line " + (lineOf(accrualFn.startIndex) + 1) + "): `"
+        + pool + " += <param>` without `_mint`; stake `" + stakeFn.name + "` (line "
         + (lineOf(stakeFn.startIndex) + 1) + "): `_mint` + `" + pool + " += msg.value`; exit `"
-        + exit.fn.name + "` (baris " + (lineOf(exit.fn.startIndex) + 1) + "): rate `(" + pool
-        + " * ...) / " + exit.formula.total + "` dikunci lalu share dibakar; " + feeNote + ".",
-      toVerify: ["Cek nilai LIVE fee keluar (`" + (fee.var || "fee") + "`) — bila 0, severity Medium terkonfirmasi; bila nonzero, hitung capture per siklus vs fee",
-        "cek jadwal accrual LIVE (event AccrueReward / pemanggil bot): bila terjadwal kaku (mis. harian jam yang sama), timing attack praktis",
-        "cek ada tidaknya jeda minimum stake→unbond / minimum stake di kode + live (bila ada, kandidat ini gugur)",
+        + exit.fn.name + "` (line " + (lineOf(exit.fn.startIndex) + 1) + "): rate `(" + pool
+        + " * ...) / " + exit.formula.total + "` is locked, then shares are burned; " + feeNote + ".",
+      toVerify: ["Check the LIVE exit fee value (`" + (fee.var || "fee") + "`) — if 0, Medium severity is confirmed; if nonzero, compute the per-cycle capture vs the fee",
+        "check the LIVE accrual schedule (AccrueReward events / bot caller): if rigidly scheduled (e.g. same time daily), the timing attack is practical",
+        "check for a minimum stake→unbond delay / minimum stake in code + live (if one exists, this candidate dies)",
         "hitung capture live: stake / (pool + stake) × reward per accrual vs biaya gas 3 tx (stake + request + unbond)",
-        "PoC fork: stake sebelum accrueReward, requestUnbond sesudahnya, bandingkan payout vs stake awal; kontrol fee-1% (fix-flip) harus membalik profit jadi rugi"],
+        "Fork PoC: stake before accrueReward, requestUnbond after it, compare the payout vs the initial stake; the fee-1% control (fix-flip) must flip the profit into a loss"],
       source: "pattern-scan",
     }));
   }
@@ -5376,37 +5376,37 @@ function detectRefundLockedMiddleware(source, fileName, idStart, opts) {
     // soal tujuan withdraw (daftar withdraw sudah menyebutkannya).
     const ethNote = !ethForward ? ""
       : noRecv
-        ? " Kontrak ini tanpa receive()/fallback() yang dapat menerima refund — refund ETH dari bridge REVERT di titik transfer (dana tertahan di bridge, bukan di middleware)."
-        : " Kontrak ini punya receive()/fallback() — refund ETH bisa masuk, tapi refund ERC20 tetap terkunci (tanpa rescue).";
+        ? " This contract has no receive()/fallback() that can accept a refund — the ETH refund from the bridge REVERTS at the transfer point (funds stuck at the bridge, not the middleware)."
+        : " This contract has receive()/fallback() — ETH refunds can come in, but ERC20 refunds stay locked (no rescue).";
     out.push(normalizeCandidate({
       id: "FA-" + String(idStart + out.length).padStart(3, "0"),
       detector: "refund-locked-middleware",
-      title: "Refund gagal-deposit terkunci di middleware tanpa jalur keluar",
+      title: "Failed-deposit refund locked in the middleware with no exit path",
       location: { file: fileName, function: anchor.name },
-      hypothesis: "Fungsi `" + anchor.name + "` (baris " + (lineOf(anchor.startIndex) + 1)
+      hypothesis: "Function `" + anchor.name + "` (line " + (lineOf(anchor.startIndex) + 1)
         + ") meneruskan deposit user ke bridge eksternal lewat `" + bridgeCall.obj + "."
-        + bridgeCall.method + "` (baris " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1)
-        + ") — bridge mencatat KONTRAK INI sebagai deposit sender, bukan user."
-        + (tokenInflow ? " Token user ditarik dulu ke kontrak ini (`transferFrom(msg.sender, address(this), ...)`)."
-          : " ETH user diteruskan dengan `{value:}`.")
-        + " Bila deposit L2 gagal, bridge mengembalikan dana ke deposit sender = kontrak ini."
-        + " Tidak ada fungsi rescue untuk ERC20 arbitrer di kontrak ini"
-        + (withdraws.length > 0 ? " (yang ada hanya: " + withdraws.join(", ") + ")" : " (tidak ada fungsi withdraw/rescue sama sekali)")
-        + " — refund ERC20 yang mendarat di sini terkunci permanen." + ethNote,
-      preconditions: "Deposit L2 gagal (gas limit user/frontend atau kondisi L2) sehingga bridge mengeksekusi jalur refund; bridge live mengembalikan dana ke deposit sender (bukan ke user asli).",
-      impact: "Dana principal user dari deposit yang gagal terkunci permanen di middleware (ERC20) atau tertahan di bridge (ETH bila tanpa receive/fallback) — kerugian kondisional, tanpa korban sampai ada failed-deposit yang tercatat.",
+        + bridgeCall.method + "` (line " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1)
+        + ") — the bridge records THIS CONTRACT as the deposit sender, not the user."
+        + (tokenInflow ? " User tokens are pulled into this contract first (`transferFrom(msg.sender, address(this), ...)`)."
+          : " User ETH is forwarded with `{value:}`.")
+        + " If an L2 deposit fails, the bridge returns the funds to the deposit sender = this contract."
+        + " There is no rescue function for arbitrary ERC20 in this contract"
+        + (withdraws.length > 0 ? " (the only ones present: " + withdraws.join(", ") + ")" : " (there is no withdraw/rescue function at all)")
+        + " — an ERC20 refund landing here is locked permanently." + ethNote,
+      preconditions: "The L2 deposit fails (user/frontend gas limit or L2 conditions) so the bridge executes the refund path; the live bridge returns the funds to the deposit sender (not the original user).",
+      impact: "User principal from a failed deposit is locked permanently in the middleware (ERC20) or stuck at the bridge (ETH without receive/fallback) — conditional loss, no victim until a failed deposit is recorded.",
       severityGuess: severity,
       evidence: "Panggilan bridge `" + bridgeCall.obj + "." + bridgeCall.method + "` di `"
-        + bridgeFn.name + "` (baris " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1) + ")"
+        + bridgeFn.name + "` (line " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1) + ")"
         + (bridgeCall.libFn ? " via library `" + bridgeCall.libFn + "`" : "")
         + (tokenInflow ? "; inflow token `transferFrom(msg.sender, address(this), ...)`" : "; forward ETH `{value:}`")
-        + "; tanpa rescue ERC20 arbitrer"
-        + (withdraws.length > 0 ? "; withdraw yang ada: " + withdraws.join(", ") : "")
-        + "; " + (noRecv ? "tanpa receive()/fallback() yang dapat menerima refund" : "dengan receive()/fallback()") + ".",
-      toVerify: ["Konfirmasi semantik refund bridge LIVE (router/hub mengembalikan dana gagal-deposit ke deposit sender = kontrak ini, bukan ke user asli) — baca claimFailedDeposit / _depositSender di implementasi bridge live; untuk jalur Direct, pastikan refundRecipient = address(this)",
-        "Cek saldo LIVE kontrak ini (token non-base > 0 atau event ClaimedFailedDeposit ke alamat ini = korban sudah ada; 0 = laten)",
-        "Cek kontrak warisan/base di luar file ini: fungsi rescue ERC20 arbitrer mungkin hidup di kontrak induk luar-file (detektor hanya melihat induk file-lokal) — bila ada, kandidat ini gugur; cek juga proxy kustom yang punya receive() sendiri tanpa delegasi",
-        "Mock PoC: deposit gagal via middleware, refund mendarat di middleware, buktikan withdraw yang ada tidak menyentuhnya (kontrol positif: base token + ETH bisa ditarik)"],
+        + "; no arbitrary ERC20 rescue"
+        + (withdraws.length > 0 ? "; existing withdraws: " + withdraws.join(", ") : "")
+        + "; " + (noRecv ? "without a receive()/fallback() that can accept a refund" : "with a receive()/fallback()") + ".",
+      toVerify: ["Confirm the LIVE bridge refund semantics (router/hub returns failed-deposit funds to the deposit sender = this contract, not the original user) — read claimFailedDeposit / _depositSender in the live bridge implementation; for the Direct path, make sure refundRecipient = address(this)",
+        "Check this contract's LIVE balance (non-base token > 0 or a ClaimedFailedDeposit event to this address = a victim already exists; 0 = latent)",
+        "Check inherited/base contracts outside this file: an arbitrary ERC20 rescue function may live in an out-of-file parent (the detector only sees local-file parents) — if one exists, this candidate dies; also check custom proxies that have their own receive() without delegation",
+        "Mock PoC: a deposit fails via the middleware, the refund lands in the middleware, prove the existing withdraws do not touch it (positive control: base token + ETH can be withdrawn)"],
       source: "pattern-scan",
     }));
   }
@@ -5883,43 +5883,43 @@ function detectVariantBranchNoPayloadConsume(source, fileName, idStart) {
             id: "FA-" + String(idStart + out.length).padStart(3, "0"),
             detector: "variant-branch-no-payload-consume",
             title: "Cabang varian " + condLabel
-              + " tidak mengonsumsi payload — offset desync untuk item berikutnya",
+              + " does not consume the payload — offset desync for the next item",
             location: { file: fileName, function: fn.name },
-            hypothesis: "Di `" + fn.name + "` (baris " + lineNo + "), loop membaca item"
-              + " demi item dari cursor `" + (cursor || "(state-based)") + "` dan men-dispatch berdasarkan `"
+            hypothesis: "Di `" + fn.name + "` (line " + lineNo + "), the loop reads items"
+              + " item by item from cursor `" + (cursor || "(state-based)") + "` and dispatches based on `"
               + tagVar + "`; cabang " + condLabel
-              + " hanya menandai flag tanpa membaca payload apa pun dari cursor,"
-              + " sementara cabang lain mengonsumsi payload (" + consumerConds + ")."
-              + " Cursor tidak maju di cabang ini, jadi item berikutnya ter-parse"
-              + " dari posisi yang salah (offset desync) — field payload cabang ini"
-              + " (mis. `other`) tak pernah terisi dan item sesudahnya bisa"
-              + " ter-decode sebagai tag/field palsu.",
-            preconditions: "Ada item varian opaque (Other/Unknown/Custom/...) yang"
-              + " benar-benar muncul di stream dengan payload length-prefixed"
-              + " sesudah tag-nya; loop berlanjut ke item berikutnya (bukan"
-              + " item terakhir / bukan satu-satunya varian yang dipakai).",
-            impact: "Parsing header/stream desync: digest/item sesudah varian"
+              + " only sets a flag without reading any payload from the cursor,"
+              + " while another branch consumes the payload (" + consumerConds + ")."
+              + " The cursor does not advance in this branch, so the next item is parsed "
+              + " from the wrong position (offset desync) — this branch's payload field "
+              + " (e.g. `other`) is never filled and the item after it can "
+              + " decoded as a fake tag/field.",
+            preconditions: "There is an opaque variant item (Other/Unknown/Custom/...) that "
+              + " actually appears in the stream with a length-prefixed payload "
+              + " after its tag; the loop continues to the next item (not "
+              + " last item / not the only variant in use).",
+            impact: "Header/stream parsing desync: the digest/item after the variant "
               + " opaque ter-decode salah — worst-case liveness (revert / root"
-              + " sampah ditolak downstream) bila stream harus genuinely"
-              + " finalized; bukan fund-loss langsung — severity Info.",
+              + " garbage is rejected downstream) if the stream must be genuinely "
+              + " finalized; not a direct fund-loss — severity Info.",
             severityGuess: "Info",
             evidence: "Cabang " + condLabel
-              + " di `" + fn.name + "` (baris " + lineNo + ") tanpa satu pun"
-              + " panggilan baca/decode/skip atas cursor `" + (cursor || "(state-based)") + "`;"
-              + " cabang lain di rantai yang sama mengonsumsi payload ("
+              + " di `" + fn.name + "` (line " + lineNo + ") without any "
+              + " read/decode/skip calls over cursor `" + (cursor || "(state-based)") + "`;"
+              + " another branch in the same chain consumes the payload ("
               + consumerConds + ").",
-            toVerify: ["Konfirmasi format wire varian ini dari spec upstream"
-              + " (mis. Substrate SCALE `DigestItem::Other(Vec<u8>)`): bila"
-              + " varian ini memang unit (tanpa payload), kandidat ini GUGUR"
-              + " — detektor hanya menandai nama varian opaque",
-              "Cek apakah stream/header bisa berisi varian opaque dari"
-              + " penyerang ATAU harus genuinely finalized (bila finalized +"
-              + " ZK-proven, worst-case hanya liveness)",
-              "Cek pemakaian downstream field payload cabang ini (mis."
-              + " `Digest.other`): bila tak pernah dibaca, dampak terbatas"
-              + " pada desync item sesudahnya",
-              "PoC fork: encode header dengan item Other ber-payload di"
-              + " tengah deretan item, decode, bandingkan hasil vs ekspektasi"],
+            toVerify: ["Confirm this variant's wire format from the upstream spec"
+              + " (e.g. Substrate SCALE `DigestItem::Other(Vec<u8>)`): if "
+              + " this variant really is unit (no payload), this candidate is DEAD"
+              + " — the detector only flags the opaque variant's name",
+              "Check whether the stream/header can contain an opaque variant from "
+              + " attacker OR must be genuinely finalized (if finalized + "
+              + " ZK-proven, worst-case liveness only)",
+              "Check downstream usage of this branch's payload field (e.g. "
+              + " `Digest.other`): if never read, the impact is limited "
+              + " on the desync of the following item",
+              "Fork PoC: encode a header with a payload-bearing Other item in "
+              + " mid item-sequence, decode, compare the result vs expectation"],
             source: "pattern-scan",
           }));
         }
@@ -6319,28 +6319,28 @@ function detectGuardAsymmetryNavReaders(source, fileName, idStart) {
         hits.push(normalizeCandidate({
           id: "FA-" + String(idStart + hits.length).padStart(3, "0"),
           detector: "guard-asymmetry-nav-readers",
-          title: "Pembaca NAV tanpa cek reentrancy, saudaranya ber-guard",
+          title: "NAV reader without a reentrancy check, its sibling is guarded",
           location: { file: fileName, function: fn.name },
-          hypothesis: "`" + fn.name + "` (baris " + line + ") membaca NAV lewat "
-            + sharedNames.join(", ") + " TANPA cek kunci reentrancy, sementara saudara sekandungnya `"
-            + guardedNames.join("`, `") + "` membaca NAV yang sama DENGAN guard ("
-            + guarded.map((g) => guardForms[g]).join("; ") + ") — nilai yang dibaca"
-            + " bisa basi/menyesatkan bila dipanggil di tengah deposit/withdraw saat kunci aktif.",
-          preconditions: "Ada jalur pemanggilan ke `" + fn.name + "` saat kunci reentrancy aktif"
-            + " (callback token ber-hook, flash-loan callback, adaptor hook, atau pembaca lintas-kontrak"
-            + " seperti adaptor balanceOf) — tanpa jalur itu pembacaan ini hanya latent.",
-          impact: "Low — NAV basi yang dibaca lintas-kontrak bisa menggerakkan keputusan deposit/withdraw/"
-            + "redeem kontrak lain; butuh jalur callback permissionless untuk jadi fund-loss — saat ini"
-            + " latent/hardening, bukan kandidat submit.",
+          hypothesis: "`" + fn.name + "` (line " + line + ") reads the NAV via "
+            + sharedNames.join(", ") + " WITHOUT a reentrancy-lock check, while its sibling `"
+            + guardedNames.join("`, `") + "` reads the same NAV WITH a guard ("
+            + guarded.map((g) => guardForms[g]).join("; ") + ") — the value read "
+            + " can be stale/misleading if called mid deposit/withdraw while the lock is active.",
+          preconditions: "There is a call path to `" + fn.name + "` while the reentrancy lock is active"
+            + " (hooked-token callback, flash-loan callback, adaptor hook, or cross-contract reader"
+            + " such as an adaptor balanceOf) — without that path this read is only latent.",
+          impact: "Low — stale NAV read cross-contract can move deposit/withdraw decisions/"
+            + "another contract's redeem; needs a permissionless callback path to become fund-loss — currently "
+            + " latent/hardening, not a submission candidate.",
           severityGuess: "Low",
-          evidence: "`" + fn.name + "` tanpa cek kunci reentrancy; `" + guardedNames.join("`, `")
-            + "` ber-guard; sama-sama membaca NAV lewat " + sharedNames.join(", ") + ".",
-          toVerify: ["Cek apakah `" + fn.name + "` bisa dipanggil di tengah callback saat kunci aktif"
+          evidence: "`" + fn.name + "` without a reentrancy-lock check; `" + guardedNames.join("`, `")
+            + "` is guarded; both read the NAV via " + sharedNames.join(", ") + ".",
+          toVerify: ["Check whether `" + fn.name + "` can be called mid-callback while the lock is active"
             + " (token ber-hook ERC777/ERC1363, flash-loan callback, adaptor hook)",
-            "Cek apakah guard saudara adalah kunci reentrancy yang sama (bukan pause/role)",
-            "Cek pembaca lintas-kontrak yang mengandalkan nilai ini (mis. adaptor balanceOf -> " + fn.name + ")",
-            "PoC fork: aktifkan kunci lewat reentrancy lalu baca `" + fn.name + "` — bandingkan dengan saudara"
-            + " ber-guard yang revert"],
+            "Check whether the sibling guard is the same reentrancy lock (not pause/role)",
+            "Check cross-contract readers that rely on this value (e.g. adaptor balanceOf -> " + fn.name + ")",
+            "Fork PoC: activate the lock via reentrancy, then read `" + fn.name + "` — compare with the sibling "
+            + " guarded, which reverts"],
           source: "pattern-scan",
         }));
       }
@@ -7083,41 +7083,41 @@ function detectUnboundedLoopInflatableSet(source, fileName, idStart) {
       const g = growers[0];
       const rLine = clean.slice(0, r.fn.startIndex).split("\n").length;
       const gLine = clean.slice(0, g.fn.startIndex).split("\n").length;
-      const rSpanNote = r.span !== declSpan ? " (kontrak " + r.span.name + ")" : "";
-      const gSpanNote = g.span !== declSpan ? " (kontrak " + g.span.name + ")" : "";
+      const rSpanNote = r.span !== declSpan ? " (contract " + r.span.name + ")" : "";
+      const gSpanNote = g.span !== declSpan ? " (contract " + g.span.name + ")" : "";
       hits.push(normalizeCandidate({
         id: "FA-" + String(idStart + hits.length).padStart(3, "0"),
         detector: "unbounded-loop-inflatable-set-accounting",
-        title: "Loop tak-berbatas atas set yang bisa digelembungkan permissionless",
+        title: "Unbounded loop over a set that anyone can inflate permissionlessly",
         location: { file: fileName, function: r.fn.name },
-        hypothesis: "`" + r.fn.name + "` (baris " + rLine + rSpanNote + ") me-loop SELURUH isi set `" + v.name
-          + "` tanpa batas/paginasi"
+        hypothesis: "`" + r.fn.name + "` (line " + rLine + rSpanNote + ") loops over the ENTIRE contents of set `" + v.name
+          + "` without a cap/pagination"
           + (r.via ? " lewat helper internal `" + r.via + "`" : "")
-          + ", sementara `" + g.fn.name + "` (baris " + gLine + gSpanNote + ") menambah entri ke set itu"
-          + " TANPA kontrol akses dengan kunci pilihan caller"
+          + ", sementara `" + g.fn.name + "` (line " + gLine + gSpanNote + ") adds an entry to that set"
+          + " WITHOUT access control with a caller-chosen key"
           + (g.keyParam ? " (parameter `" + g.keyParam + "`)" : "")
           + (g.via ? " lewat helper internal `" + g.via + "`" : "")
-          + " — siapa pun bisa menggelembungkan set milik korban sampai pembacaan"
-          + " akuntansi ini kehabisan gas (OutOfGas) dan semua alur yang membacanya revert.",
-        preconditions: "Pembaca `" + r.fn.name + "` terjangkau dari jalur akuntansi (totalAssets/balanceOf"
-          + " atau sejenisnya) dan grower `" + g.fn.name + "` masih bisa dipanggil siapa pun"
-          + " (tanpa guard di kontrak lain / tanpa cap jumlah entri di luar file ini).",
-        impact: "Medium — DoS atas view akuntansi: deposit/withdraw/redeem dan semua pemeriksaan"
-          + " totalAssets sebelum/sesudah yang memanggil pembaca ini ikut revert; dana posisi"
+          + " — anyone can inflate the victim's set until the read "
+          + " this accounting runs out of gas (OutOfGas) and every flow that reads it reverts.",
+        preconditions: "Pembaca `" + r.fn.name + "` reachable from the accounting path (totalAssets/balanceOf "
+          + " or similar) and the grower `" + g.fn.name + "` can still be called by anyone"
+          + " (no guard in another contract / no entry-count cap outside this file).",
+        impact: "Medium — DoS on the accounting view: deposit/withdraw/redeem and every check "
+          + " totalAssets before/after that call this reader also revert; the position's funds "
           + " beku sampai intervensi governance (force-out). Biaya serang = minimum deposit ×"
-          + " jumlah entri + gas (contoh nyata Somm: ±3.121 entri membrick totalAssets).",
+          + " entry count + gas (real example, Somm: ±3,121 entries brick totalAssets).",
         severityGuess: "Medium",
-        evidence: "Grower `" + g.fn.name + "` (baris " + gLine + gSpanNote + ") tanpa kontrol akses menambah `"
-          + v.name + "`" + (g.keyParam ? " dengan kunci parameter `" + g.keyParam + "`" : "")
+        evidence: "Grower `" + g.fn.name + "` (line " + gLine + gSpanNote + ") without access control adds `"
+          + v.name + "`" + (g.keyParam ? " with the parameter key `" + g.keyParam + "`" : "")
           + (g.via ? " lewat helper internal `" + g.via + "`" : "")
-          + "; reader `" + r.fn.name + "` (baris " + rLine + rSpanNote + ") me-loop panjang penuh set itu"
+          + "; reader `" + r.fn.name + "` (line " + rLine + rSpanNote + ") loops over the full length of that set"
           + (r.via ? " lewat helper internal `" + r.via + "`" : "")
-          + " tanpa `break` tanpa syarat/paginasi; deklarasi set baris " + (v.declLine + 1) + ".",
-        toVerify: ["Cek rantai panggil: apakah `" + r.fn.name + "` dibaca dari totalAssets/balanceOf (jalur akuntansi) — bila hanya dibaca langsung user, dampaknya self-DoS",
-          "Cek biaya bloat per entri (minimum deposit + gas grower) dan ambang brick (gas/entri × block gas limit)",
-          "Cek ada cap jumlah entri / paginasi di kontrak lain atau di versi deploy",
-          "Cek jalur pemulihan pasca-brick (force-out / governance) dan apakah dana bisa keluar tanpa pembaca ini",
-          "PoC fork: bloat set sampai ambang lalu panggil `" + r.fn.name + "` + totalAssets dengan gas limit blok — harus revert OutOfGas"],
+          + " without an unconditional `break`/pagination; set declaration line " + (v.declLine + 1) + ".",
+        toVerify: ["Check the call chain: does `" + r.fn.name + "` is read from totalAssets/balanceOf (the accounting path) — if only read directly by users, the impact is self-DoS",
+          "Check the bloat cost per entry (minimum deposit + grower gas) and the brick threshold (gas/entry × block gas limit)",
+          "Check for an entry-count cap / pagination in other contracts or in the deployed version",
+          "Check the post-brick recovery path (force-out / governance) and whether funds can exit without this reader",
+          "PoC fork: bloat set sampai ambang lalu panggil `" + r.fn.name + "` + totalAssets with the block gas limit — must revert OutOfGas"],
         source: "pattern-scan",
       }));
     }
@@ -7133,28 +7133,28 @@ function detectDeadConfigStorage(source, fileName, idStart) {
   const contractName = (source.match(/\bcontract\s+([A-Za-z_][A-Za-z0-9_$]*)/) || [])[1]
     || fileName.split("/").pop();
   return dead.map((d, k) => {
-    const writerList = d.writes.map((w) => (w.fn || "?") + " (baris " + (w.line + 1) + ")").join(", ");
+    const writerList = d.writes.map((w) => (w.fn || "?") + " (line " + (w.line + 1) + ")").join(", ");
     const isInfo = d.infoReasons.length > 0;
     const cand = normalizeCandidate({
       id: "FA-" + String(idStart + k).padStart(3, "0"),
       detector: "dead-config-storage",
-      title: "Dead config: `" + d.name + "` ditulis tapi tak pernah dibaca",
+      title: "Dead config: `" + d.name + "` written but never read",
       location: { file: fileName, function: d.firstWriter.fn || contractName },
-      hypothesis: "State var `" + d.name + "` (deklarasi baris " + (d.declLine + 1) + ") ditulis "
-        + d.writes.length + "× di " + writerList + " tapi TIDAK PERNAH dibaca di file ini"
-        + (d.noops > 0 ? " (plus " + d.noops + "× statement no-op `" + d.name + ";` — disebut tapi tidak dipakai)" : "")
-        + " — config yang disetel governance tidak mengubah perilaku kontrak apa pun.",
-      preconditions: "Setter/initialize masih bisa dipanggil (governance aktif) dan tidak ada pembaca di file lain yang terlewat.",
-      impact: "Operator/governance mengira config ini berlaku padahal tidak — keputusan (mis. pilih oracle primer vs sekunder, ambang spread) diam-diam tidak berpengaruh; bila upstream MEMBACA var ini, fork kehilangan wiring-nya (lihat anotasi upstream-diff).",
+      hypothesis: "State var `" + d.name + "` (declaration line " + (d.declLine + 1) + ") ditulis "
+        + d.writes.length + "× di " + writerList + " but is NEVER read in this file"
+        + (d.noops > 0 ? " (plus " + d.noops + "× statement no-op `" + d.name + ";` — mentioned but not used)" : "")
+        + " — config set by governance changes no contract behavior at all.",
+      preconditions: "The setter/initialize is still callable (governance active) and no reader in another file was missed.",
+      impact: "The operator/governance believes this config applies when it does not — decisions (e.g. picking the primary vs secondary oracle, spread thresholds) silently have no effect; if upstream READS this var, the fork has lost its wiring (see the upstream-diff annotation).",
       severityGuess: isInfo ? "Info" : "Low",
-      evidence: "Tulis di " + writerList + "; 0 baca di file ini"
+      evidence: "Written in " + writerList + "; 0 reads in this file"
         + (d.noops > 0 ? "; " + d.noops + "× statement no-op `" + d.name + ";`" : "")
-        + "; deklarasi baris " + (d.declLine + 1) + "."
+        + "; declaration line " + (d.declLine + 1) + "."
         + (isInfo ? " [Info: " + d.infoReasons.join("; ") + "]" : ""),
-      toVerify: ["Cek apakah var ini dibaca lewat getter publik oleh kontrak lain / off-chain (auto-getter `public` tetap bisa dibaca lintas kontrak)",
-        "bandingkan dengan upstream: bila upstream MEMBACA var ini, fork menghapus wiring-nya",
-        "cek apakah setter-nya masih bisa dipanggil governance — bila ya, config ini menyesatkan operator",
-        "PoC fork: set var lalu panggil jalur yang seharusnya terpengaruh, bandingkan perilaku"],
+      toVerify: ["Check whether this var is read via a public getter by other contracts / off-chain (a `public` auto-getter can still be read cross-contract)",
+        "compare with upstream: if upstream READS this var, the fork removed its wiring",
+        "check whether its setter is still callable by governance — if yes, this config misleads the operator",
+        "Fork PoC: set the var, then call the path that should be affected, compare behavior"],
       source: "pattern-scan",
     });
     cand.varName = d.name;
@@ -7291,28 +7291,28 @@ function detectEthLockedReceive(source, fileName, idStart) {
     hits.push(normalizeCandidate({
       id: "FA-" + String(idStart + hits.length).padStart(3, "0"),
       detector: "eth-locked-receive",
-      title: "receive()/fallback() payable tanpa jalur keluar ETH",
+      title: "payable receive()/fallback() without an ETH exit path",
       location: { file: fileName, function: kind },
-      hypothesis: "Kontrak ini punya " + kind + "() external payable "
-        + "(baris " + line + ") tapi TIDAK ADA satu pun idiom keluar-ETH "
-        + "di file ini (call{value:}, payable(...).transfer/send, "
-        + "selfdestruct, safeTransferETH, {value:}) — ETH yang masuk via "
-        + kind + "() tidak punya jalan keluar di file ini.",
-      preconditions: "Tidak ada jalur rescue ETH di kontrak/proxy lain "
+      hypothesis: "This contract has " + kind + "() external payable "
+        + "(line " + line + ") but there is NOT a single ETH-exit idiom "
+        + "in this file (call{value:}, payable(...).transfer/send, "
+        + "selfdestruct, safeTransferETH, {value:}) — ETH entering via "
+        + kind + "() has no exit path in this file.",
+      preconditions: "There is no ETH rescue path in another contract/proxy "
         + "(mis. gateway WETH / admin rescue terpisah).",
-      impact: severity + " — ETH yang terkirim "
+      impact: severity + " — ETH sent "
         + (severity === "Low"
-          ? "(masuk lewat alur normal protokol: IWETH.withdraw / refund ke address(this)) "
+          ? "(enters via the normal protocol flow: IWETH.withdraw / refund to address(this)) "
           : "(biasanya kesalahan transfer user) ")
-        + "terkunci di kontrak; bukan fund-loss attacker.",
+        + "locked in the contract; not attacker fund-loss.",
       severityGuess: severity,
-      evidence: kind + "() external payable di baris " + line
-        + " tanpa idiom keluar-ETH di file."
+      evidence: kind + "() external payable at line " + line
+        + " without an ETH-exit idiom in the file."
         + (severity === "Low" ? " Sinyal Low: IWETH.withdraw / refund=address(this)." : ""),
-      toVerify: ["Cek apakah ada jalur keluar ETH di kontrak/proxy lain",
-        "cek rescueTokens/rescue: apakah hanya ERC20",
-        "bandingkan dengan upstream: apakah receive() ini tambahan fork",
-        "PoC fork: kirim ETH lalu coba tarik keluar"],
+      toVerify: ["Check whether there is an ETH exit path in another contract/proxy",
+        "check rescueTokens/rescue: is it only ERC20",
+        "compare with upstream: is this receive() a fork addition",
+        "Fork PoC: send ETH, then try to withdraw it"],
       source: "pattern-scan",
     }));
   }
@@ -7540,7 +7540,7 @@ function classifyUpstreamDiff(source, fileName, candidates, opts) {
       c.evidence += " [upstream-diff: " + r.classification
         + (r.similarity !== undefined
           ? " (cakupan token baseline " + r.similarity + ")" : "")
-        + "; penanda niat: " + (r.intentMarker ? "ya" : "tidak")
+        + "; penanda niat: " + (r.intentMarker ? "ya" : "not")
         + "; baseline " + ctx.baseName + "]";
     } else if (c.detector === "commented-out-check") {
       const fn = fnByName[c.location.function];
@@ -7573,7 +7573,7 @@ function classifyUpstreamDiff(source, fileName, candidates, opts) {
       }
       c.upstream = { ...r, baselineFile: ctx.baseName };
       c.evidence += " [upstream-diff: " + r.classification
-        + "; penanda niat: " + (r.intentMarker ? "ya" : "tidak")
+        + "; penanda niat: " + (r.intentMarker ? "ya" : "not")
         + "; baseline " + ctx.baseName + "]";
     } else if (c.detector === "oracle-passthrough-no-staleness") {
       // Aturan klasifikasi by-design-vs-kandidat BERBASIS BASELINE PER
@@ -8173,7 +8173,7 @@ function wrapperReturnsOwnerInstance(c, baseTypeNames, confirmed) {
     let expr = rm[1].trim();
     if (!expr) continue;
     // Tuple/kurung: ambil elemen pertama (sesuai tipe pertama returns);
-    // `(vault)` dan `(vault, 1)` sama-sama terurai; rantai bersarang
+    // `(vault)` and `(vault, 1)` sama-sama terurai; rantai bersarang
     // diurai bertahap (maks. 3 lapis). W-L.
     let guard = 0;
     while (expr.startsWith("(") && guard++ < 3) {
@@ -8666,7 +8666,7 @@ function applyProjectPass(candidates, files) {
         c.infoReasons = rest;
         if (rest.length === 0) {
           c.severityGuess = "Low";
-          const note = " [project-pass: hipotesis abstract-internal diperiksa di korpus ini — tidak ada kontrak turunan yang membaca var]";
+          const note = " [project-pass: abstract-internal hypothesis checked in this corpus — no derived contract reads the var]";
           c.evidence = c.evidence.indexOf(oldTag) >= 0
             ? c.evidence.replace(oldTag, note)
             : c.evidence + note;
@@ -8685,8 +8685,8 @@ function applyProjectPass(candidates, files) {
       file: c.location.file, contract: owner.name,
       severityGuess: c.severityGuess,
       readBy: reads.map((r) => r.file + ":" + (r.line + 1) + " (" + r.kind + ")"),
-      reason: "dibaca lintas-file di " + first.file + " baris " + (first.line + 1)
-        + " (" + first.kind + ") — bukan dead config",
+      reason: "read cross-file in " + first.file + " line " + (first.line + 1)
+        + " (" + first.kind + ") — not dead config",
     });
   }
   return { candidates: kept, dropped };
@@ -8928,38 +8928,38 @@ function runPipeline(source, fileName, opts) {
     candidates: kept,
     baseline: baselineInfo,
     mappedAreas: [
-      "reentrancy call-sebelum-update",
-      "fungsi kritikal tanpa kontrol akses",
-      "pembagian tanpa guard nol",
-      "ecrecover tanpa cek address(0)",
-      "tx.origin untuk otorisasi",
+      "reentrancy call-before-update",
+      "critical function without access control",
+      "division without a zero guard",
+      "ecrecover without an address(0) check",
+      "tx.origin for authorization",
       "unchecked external call",
-      "eksekutor arbitrary-call tanpa kontrol akses / permissionless-dispatcher (baru 17 Nov; Medium — kelas H3 Hyperbridge CallDispatcher.dispatch; kalibrasi R18.1: receiver terindeks, sink assembly, onlyGateway/if-revert; kalibrasi F10 18 Nov: one-hop forwarder external -> dispatcher internal, posisi argumen target/data; F10.1: data selector-pinned bukan aliran caller; R18.3: data kosong `new bytes(0)`/`abi.encode()` dikecualikan; R18.4: dust-by-design terdokumentasi di kode/docs → Medium diturunkan ke Low; R18.4b: prosa hanya dari komentar per kalimat, negasi ditolak, ikatan per sinyal nama-eksak, aturan dua-sumber)",
-      "sweep escrow memakai saldo penuh kontrak perantara / full-balance-sweep (baru 17 Nov; Low — kelas H3b Hyperbridge IntentGatewayV2.placeOrder; kalibrasi R19.1: posisi argumen paren-seimbang, assignment terakhir; R19.2: `ident.balance` polos bila ident address-typed)",
-      "kirim ETH tanpa kontrol akses ke target pilihan caller / permissionless-value-send (baru 17 Nov; Medium — rekomendasi F8 review Kiro detektor 18/19; kalibrasi R20.2 19 Nov: unwrap payable + payout entitlement; R20.2c: F1 jumlah terikat, F2 nama bukan-param, F3 bentuk cek diperlebar, F4 posisi sebelum kirim, F5 bentuk bersarang satu level)",
-      "replay signature tanpa nonce/domain separator (baru 14 Nov)",
-      "akuntansi share tak berkurang saat withdraw (baru 14 Nov)",
-      "cek keamanan dikomentari / commented-out-check (baru 14 Nov)",
-      "fungsi utuh dikomentari / commented-out-function (baru 14 Nov; kalibrasi R-COF-1 19 Nov: file interface-only dibuang tanpa bukti baseline; R-COF-1b: badan dikomentari dipertahankan, file ber-free-function bukan interface-only)",
-      "upstream-diff: klasifikasi commented-out vs baseline fork (baru 14 Nov; aktif bila baseline tersedia)",
-      "pergeseran semantik enum vs baseline / enum-semantic-shift (baru 14 Nov; aktif bila baseline tersedia)",
-      "harga oracle tanpa cek staleness / oracle-passthrough (baru 14 Nov; klasifikasi by-design vs kandidat via baseline; kalibrasi review Kiro 15 Nov: getPriceUnsafe/getUnderlyingPrice/getRoundData, guard kurung/variabel-age, tanpa answeredInRound/isBorrowAllowed)",
-      "free-memory pointer tanpa pembulatan 32 byte / free-mem-pointer (baru 14 Nov; Info saja — terkalibrasi PoC falsified; kalibrasi review Kiro 15 Nov: batas kata size/count, mload sebagai ukuran, mstore(64), lacak variabel let 1 langkah)",
-      "receive()/fallback() payable tanpa jalur keluar ETH / eth-locked-receive (baru 15 Nov; Info, naik Low bila IWETH.withdraw/refund=address(this); kalibrasi review Kiro Opus 5.5 15 Nov: {value:} umum, cast bersarang, immutable/array, safeTransferETH, proxy delegatecall ditekan, deklarasi tanpa badan tidak ter-flag, path test/mock dilewati)",
-      "cek identitas msg.sender yang vacuous di fungsi handler-only / vacuous-identity-check (baru 15 Nov; Medium — kelas FUL-REF-01 Fulcrom ReferralManager: onlyRole(HANDLER_ROLE) + `affiliate == msg.sender`)",
-      "state config ditulis tapi tak pernah dibaca / dead-config-storage (baru 15 Nov; Low — kelas R-02 Fulcrom VaultPriceFeedV2: favorPrimaryPrice + spreadThresholdBasisPoints; klasifikasi upstream-diff: live-divergent bila upstream membaca var ini)",
-      "bukti konsensus sub-daftar kosong memajukan height + stale-rejection menyensor bukti jujur / empty-sublist-proof-advances-height (baru 18 Nov; Low — kelas K-1 Hyperbridge EcdsaBeefy: `if (len > 0)` lewati verifikasi bila parachains kosong, `latestHeight` tetap maju, proof jujur blok sama ditolak stale)",
-      "sandwich JIT reward-accrual / jit-reward-accrual-sandwich (baru 19 Nov; Medium bila fee keluar default-0/tidak ada, Low bila fee nonzero/tak diketahui — kelas VENO-C2 YbEth: `accrueReward` menambah `totalPooledEth` tanpa mint share, `stake` mint pada rate pra-accrual, `requestUnbond` mengunci rate pasca-accrual lalu membakar share; jadwal accrual + fee live = toVerify)",
-      "refund gagal-deposit terkunci di middleware / refund-locked-middleware (baru 19 Nov; Medium — kelas VENO-C1 BridgeMiddleware zkCRO: deposit diteruskan ke bridge lewat `requestL2TransactionTwoBridges` sehingga kontrak tercatat deposit sender; tanpa rescue ERC20 arbitrer + tanpa receive()/fallback() — refund ERC20 terkunci di middleware, refund ETH revert di bridge; semantik refund bridge live + saldo live + rescue di kontrak induk = toVerify)",
-      "cabang varian parser tidak mengonsumsi payload / variant-branch-no-payload-consume (baru 20 Nov, kalibrasi R24 sesi #42; Info — kelas L-1 Hyperbridge Codec.DecodeHeader: cabang Other hanya menandai flag tanpa membaca payload Vec<u8>, offset desync untuk item berikutnya; varian unit tanpa payload sengaja tidak di-flag; format wire varian = toVerify)",
-      "asimetri guard reentrancy antar-fungsi pembaca NAV / guard-asymmetry-nav-readers (baru 22 Nov; Low — kelas H-SOMM-12 Somm Cellar: preview*/convert* membaca NAV tanpa cek locked sementara totalAssets/maxWithdraw/maxRedeem ber-guard; kalibrasi R25 sesi #56: propagasi guard lewat closure, guard via helper/modifier, bentuk guard uint/getter/member)",
-      "loop tak-berbatas atas set yang bisa digelembungkan permissionless / unbounded-loop-inflatable-set-accounting (baru 23 Nov; Medium — kelas H-SOMM-19 Somm VestingSimple: deposit() tanpa guard menambah allUserDepositIds[receiver] dengan receiver bebas, vestedBalanceOf() me-loop seluruh set; PoC fork: brick totalAssets pada ±3.121 entri, ±9.846 gas/entri; kalibrasi R26 sesi #59 atas review Kiro: cap diperlebar, loop while/mundur/terbalik, break bersyarat, guard khusus D26, warisan satu file; F10 sybil disengaja)",
+      "arbitrary-call executor without access control / permissionless-dispatcher (new 17 Nov; Medium — H3 class, Hyperbridge CallDispatcher.dispatch; calibration R18.1: indexed receiver, assembly sink, onlyGateway/if-revert; calibration F10 18 Nov: one-hop forwarder external -> internal dispatcher, target/data argument positions; F10.1: selector-pinned data is not caller flow; R18.3: empty data `new bytes(0)`/`abi.encode()` excluded; R18.4: dust-by-design documented in code/docs → Medium downgraded to Low; R18.4b: prose only from per-sentence comments, negation rejected, exact-name signal binding, two-source rule)",
+      "escrow sweep uses the intermediary contract's full balance / full-balance-sweep (new 17 Nov; Low — H3b class, Hyperbridge IntentGatewayV2.placeOrder; calibration R19.1: paren-balanced argument position, last assignment; R19.2: plain `ident.balance` when ident is address-typed)",
+      "send ETH without access control to a caller-chosen target / permissionless-value-send (new 17 Nov; Medium — F8 recommendation, Kiro review of detectors 18/19; calibration R20.2 19 Nov: payable unwrap + payout entitlement; R20.2c: F1 bound amount, F2 non-param name, F3 widened check forms, F4 position before send, F5 one-level nested form)",
+      "signature replay without nonce/domain separator (new 14 Nov)",
+      "share accounting does not decrease on withdraw (new 14 Nov)",
+      "commented-out security check / commented-out-check (new 14 Nov)",
+      "whole function commented out / commented-out-function (new 14 Nov; calibration R-COF-1 19 Nov: interface-only files discarded without baseline proof; R-COF-1b: commented-out bodies kept, files with free functions are not interface-only)",
+      "upstream-diff: commented-out classification vs the fork baseline (new 14 Nov; active when a baseline is available)",
+      "enum semantic shift vs baseline / enum-semantic-shift (new 14 Nov; active when a baseline is available)",
+      "oracle price without a staleness check / oracle-passthrough (new 14 Nov; by-design vs candidate classification via baseline; Kiro review calibration 15 Nov: getPriceUnsafe/getUnderlyingPrice/getRoundData, paren/variable-age guards, no answeredInRound/isBorrowAllowed)",
+      "free-memory pointer without 32-byte rounding / free-memory-pointer (new 14 Nov; Info only — calibrated PoC falsified; Kiro review calibration 15 Nov: size/count word bounds, mload as size, mstore(64), 1-step let-variable tracing)",
+      "payable receive()/fallback() without an ETH exit path / eth-locked-receive (new 15 Nov; Info, rises to Low if IWETH.withdraw/refund=address(this); Kiro Opus 5.5 review calibration 15 Nov: common {value:}, nested casts, immutable/array, safeTransferETH, proxy delegatecall suppressed, body-less declarations not flagged, test/mock paths skipped)",
+      "vacuous msg.sender identity check in a handler-only function / vacuous-identity-check (new 15 Nov; Medium — FUL-REF-01 class, Fulcrom ReferralManager: onlyRole(HANDLER_ROLE) + `affiliate == msg.sender`)",
+      "config state written but never read / dead-config-storage (new 15 Nov; Low — R-02 class, Fulcrom VaultPriceFeedV2: favorPrimaryPrice + spreadThresholdBasisPoints; upstream-diff classification: live-divergent if upstream reads this var)",
+      "empty sub-list consensus proof advances the height + stale-rejection censors honest proofs / empty-sublist-proof-advances-height (new 18 Nov; Low — K-1 class, Hyperbridge EcdsaBeefy: `if (len > 0)` skips verification when parachains are empty, `latestHeight` still advances, an honest proof of the same block is rejected as stale)",
+      "JIT reward-accrual sandwich / jit-reward-accrual-sandwich (new 19 Nov; Medium if the exit fee is default-0/absent, Low if the fee is nonzero/unknown — VENO-C2 class, YbEth: `accrueReward` adds `totalPooledEth` without minting shares, `stake` mints at the pre-accrual rate, `requestUnbond` locks the post-accrual rate then burns shares; accrual schedule + live fee = toVerify)",
+      "failed-deposit refund locked in the middleware / refund-locked-middleware (new 19 Nov; Medium — VENO-C1 class, BridgeMiddleware zkCRO: deposits are forwarded to the bridge via `requestL2TransactionTwoBridges` so the contract is recorded as the deposit sender; no arbitrary ERC20 rescue + no receive()/fallback() — ERC20 refunds locked in the middleware, ETH refunds revert at the bridge; live bridge refund semantics + live balance + rescue in a parent contract = toVerify)",
+      "parser variant branch does not consume the payload / variant-branch-no-payload-consume (new 20 Nov, calibration R24 session #42; Info — L-1 class, Hyperbridge Codec.DecodeHeader: the Other branch only sets a flag without reading the Vec<u8> payload, offset desync for the next item; unit variants without payload are intentionally not flagged; the variant wire format = toVerify)",
+      "guard asymmetry between NAV-reader functions / guard-asymmetry-nav-readers (new 22 Nov; Low — H-SOMM-12 class, Somm Cellar: preview*/convert* read NAV without a locked check while totalAssets/maxWithdraw/maxRedeem are guarded; calibration R25 session #56: guard propagation through closures, guard via helper/modifier, uint/getter/member guard forms)",
+      "unbounded loop over a set that can be inflated permissionlessly / unbounded-loop-inflatable-set-accounting (new 23 Nov; Medium — H-SOMM-19 class, Somm VestingSimple: deposit() without a guard adds allUserDepositIds[receiver] with a free receiver, vestedBalanceOf() loops the whole set; fork PoC: totalAssets bricks at ±3,121 entries, ±9,846 gas/entry; calibration R26 session #59 over a Kiro review: widened cap, while/backward/reversed loops, conditional break, D26-specific guard, single-file inheritance; F10 sybil intentional)",
     ],
     unmappedAreas: [
-      "accounting mendalam di luar share-withdraw",
-      "manipulasi harga oracle / TWAP di luar staleness",
-      "review Kiro agent crew (jalur terpisah, bukan pipeline)",
-      "Slither (dijalankan terpisah, hasil dinormalisasi via normalizeSlither)",
+      "deep accounting beyond share-withdraw",
+      "oracle price manipulation / TWAP beyond staleness",
+      "Kiro agent crew review (separate path, not the pipeline)",
+      "Slither (run separately, results normalized via normalizeSlither)",
     ],
     topHypotheses: kept.slice(0, 3),
   };
@@ -8976,7 +8976,7 @@ function normalizeSlither(slitherJson, fileName) {
     && slitherJson.results.detectors) || [];
   detectors.forEach((d, i) => {
     const el = (d.elements && d.elements[0]) || {};
-    const fnName = (el.name) || "kontrak";
+    const fnName = (el.name) || "contract";
     const file = (el.source_mapping
       && el.source_mapping.filename_relative) || fileName;
     out.push(normalizeCandidate({
@@ -8987,15 +8987,15 @@ function normalizeSlither(slitherJson, fileName) {
         : ("Slither: " + (d.check || "unknown")),
       location: { file, function: fnName },
       hypothesis: d.description || "",
-      preconditions: "Lihat laporan Slither lengkap untuk konteks.",
+      preconditions: "See the full Slither report for context.",
       impact: "Impact Slither: " + (d.impact || "?")
         + " · confidence: " + (d.confidence || "?"),
       severityGuess: d.impact === "High" ? "High"
         : d.impact === "Medium" ? "Medium" : "Low",
       evidence: (d.check || "") + " — "
         + ((el.source_mapping && el.source_mapping.lines) || []).join(","),
-      toVerify: ["Baca finding Slither lengkap",
-        "konfirmasi manual di source", "PoC fork bila relevan"],
+      toVerify: ["Read the full Slither finding",
+        "konfirmasi manual di source", "Fork PoC if relevant"],
       source: "slither",
     }));
   });

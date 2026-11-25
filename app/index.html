@@ -1,77 +1,78 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FrankenAudit — Asisten Audit Smart Contract</title>
+<title>FrankenAudit — Smart Contract Audit Assistant</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
   <h1>FrankenAudit</h1>
-  <p>Asisten audit smart-contract open-source untuk pemburu bug bounty.
-     Slither + Kiro agent crew + lookup on-chain read-only.</p>
-  <p class="disclaimer"><strong>Perhatian:</strong> hasil di sini adalah
-     <em>kandidat</em>, bukan verdict. Setiap kandidat butuh verifikasi
-     (data live + PoC di fork) oleh wasit manusia sebelum dianggap temuan.</p>
+  <p>An open-source smart-contract audit assistant for bug bounty hunters.
+     Slither + Kiro agent crew + read-only on-chain lookup.</p>
+  <p class="disclaimer"><strong>Note:</strong> everything here is a
+     <em>candidate</em>, not a verdict. Every candidate needs verification
+     (live data + a fork PoC) by a human referee before it counts as a finding.</p>
 </header>
 
 <main>
   <section id="input-panel">
-    <h2>1. Pilih kontrak</h2>
-    <label>Kontrak sampel terkurasi
+    <h2>1. Pick a contract</h2>
+    <label>Curated sample contracts
       <select id="sample-select">
-        <option value="">— pilih sampel —</option>
+        <option value="">— pick a sample —</option>
       </select>
     </label>
-    <label>atau tempel alamat kontrak (EVM)
+    <label>or paste a contract address (EVM)
       <input id="address-input" type="text" placeholder="0x…" spellcheck="false">
     </label>
-    <label>chain untuk lookup on-chain (read-only eth_getCode)
+    <label>chain for on-chain lookup (read-only eth_getCode)
       <select id="chain-select">
         <option value="https://bsc-dataseed.binance.org/">BNB Chain (bsc-dataseed)</option>
         <option value="https://eth.llamarpc.com">Ethereum (llamarpc)</option>
         <option value="https://mainnet.zkevm.cronos.org">Cronos zkEVM (mainnet.zkevm.cronos.org)</option>
       </select>
     </label>
-    <label>atau unggah file .sol
+    <label>or upload a .sol file
       <input id="file-input" type="file" accept=".sol">
     </label>
-    <label>baseline upstream (opsional — untuk fork vs upstream)
+    <label>upstream baseline (optional — for fork vs upstream)
       <input id="baseline-input" type="file" accept=".sol" multiple>
     </label>
-    <p id="baseline-status" class="baseline-status">Baseline: belum diunggah — kandidat commented-out / enum / oracle tampil tanpa klasifikasi upstream-diff.</p>
-    <button id="baseline-clear-btn" type="button" hidden>Hapus baseline</button>
-    <button id="run-btn">Jalankan analisis</button>
-    <pre id="source-view" class="source-view">// source kontrak tampil di sini</pre>
+    <p id="baseline-status" class="baseline-status">Baseline: none uploaded — commented-out / enum / oracle candidates are shown without upstream-diff classification.</p>
+    <button id="baseline-clear-btn" type="button" hidden>Clear baseline</button>
+    <button id="run-btn">Run analysis</button>
+    <pre id="source-view" class="source-view">// contract source appears here</pre>
   </section>
 
   <section id="report-panel">
-    <h2>2. Laporan kandidat</h2>
-    <div id="report">Belum ada analisis. Pilih kontrak lalu jalankan.</div>
+    <h2>2. Candidate report</h2>
+    <div id="report">No analysis yet. Pick a contract and run it.</div>
   </section>
 
   <section id="intake-panel">
-    <h2>3. Intake &amp; Gate — program bug bounty (M2.5)</h2>
-    <p>Penilaian program kandidat sebelum hunting: skoring 0–100, vonis gerbang
-       (LAYAK / KONFIRMASI / TOLAK), lalu routing ke antrean + detektor yang cocok.
-       Daftar di bawah adalah program yang sudah dikenal (TARGETS.md, per 17 Nov 2026);
-       discovery internet terbuka belum masuk versi ini.</p>
-    <label>Mode gerbang
+    <h2>3. Intake &amp; Gate — bug bounty programs (M2.5)</h2>
+    <p>Scoring of candidate programs before hunting: a 0–100 score, a gate
+       verdict (LAYAK / KONFIRMASI / TOLAK), then routing to the matching
+       queue + detectors. The list below is the set of known programs
+       (TARGETS.md, as of 17 Nov 2026); open internet discovery is not in
+       this version.</p>
+    <label>Gate mode
       <select id="intake-mode-select">
-        <option value="strict">strict — setiap field butuh konfirmasi manusia (default v10)</option>
-        <option value="auto">auto — program publik-jelas lolos otomatis</option>
-        <option value="paused">paused — nilai saja, tanpa pengujian</option>
+        <option value="strict">strict — every field needs human confirmation (v10 default)</option>
+        <option value="auto">auto — clearly public programs pass automatically</option>
+        <option value="paused">paused — score only, no testing</option>
       </select>
     </label>
-    <button id="intake-run-btn" type="button">Nilai program yang dikenal</button>
-    <div id="intake-report">Belum dinilai. Klik tombol di atas.</div>
+    <button id="intake-run-btn" type="button">Score the known programs</button>
+    <div id="intake-report">Not scored yet. Click the button above.</div>
   </section>
 </main>
 
 <footer>
-  <p>FrankenAudit — proyek Kiroween 2026 (kategori Frankenstein). MIT License.
-     Tidak pernah menyentuh wallet, private key, atau mainnet.</p>
+  <p>FrankenAudit — a Kiroween 2026 project (Frankenstein category). MIT License.
+     Never touches wallets, private keys, or mainnet.</p>
 </footer>
 
 <script src="pipeline.js"></script>

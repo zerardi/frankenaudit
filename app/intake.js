@@ -125,25 +125,25 @@ function blanketExcluded(p) {
 function qualifierDropReasons(p, now) {
   const reasons = [];
   if (p.invites_testing === false) {
-    reasons.push("tidak ada undangan pengujian publik");
+    reasons.push("no public testing invitation");
   }
   if (scopeCount(p) === 0 && !p.securityTxt) {
-    reasons.push("scope kosong/tak terurai & tanpa security.txt");
+    reasons.push("empty/unparsed scope & no security.txt");
   }
   if (p.automatedTestingAllowed === false) {
-    reasons.push("RoE melarang pengujian otomatis/agentic");
+    reasons.push("RoE prohibits automated/agentic testing");
   }
   if (p.status === "exhausted" || p.status === "blacklisted") {
-    reasons.push("sudah " + p.status + " di memori");
+    reasons.push("already " + p.status + " in memory");
   }
   if (blanketExcluded(p)) {
-    reasons.push("excluded-tests melarang semua teknik agen");
+    reasons.push("excluded-tests ban all agent techniques");
   }
   if (p.deadline) {
     const d = new Date(p.deadline + "T00:00:00Z");
     const ref = now instanceof Date ? now : new Date(now || Date.now());
     if (!Number.isNaN(d.getTime()) && d.getTime() < ref.getTime()) {
-      reasons.push("deadline " + p.deadline + " sudah lewat");
+      reasons.push("deadline " + p.deadline + " has passed");
     }
   }
   return reasons;
@@ -220,8 +220,8 @@ function scoreProgram(raw, now) {
   // bukti kualitas. Daftar field-nya diekspos supaya UI/laporan jujur.
   const unknownFields = [];
   if (p.surfaceFit === undefined) unknownFields.push("fit");
-  if (p.competition === "unknown" || p.competition === undefined) unknownFields.push("kompetisi");
-  if (p.responseHealth === undefined) unknownFields.push("respons");
+  if (p.competition === "unknown" || p.competition === undefined) unknownFields.push("competition");
+  if (p.responseHealth === undefined) unknownFields.push("response");
   if (p.assetNovelty === undefined) unknownFields.push("novelty");
   if (!p.freshness) unknownFields.push("freshness");
   if (typeof p.rewardMaxUsd !== "number" || !Number.isFinite(p.rewardMaxUsd)) {
@@ -229,13 +229,13 @@ function scoreProgram(raw, now) {
   }
   const reasons = [];
   if (scopeCount(p) >= 10) {
-    reasons.push("scope jelas & luas (" + scopeCount(p) + " aset)");
+    reasons.push("clear & broad scope (" + scopeCount(p) + " assets)");
   }
   if (typeof p.rewardMaxUsd === "number" && p.rewardMaxUsd >= 100000) {
-    reasons.push("reward maks ≥ $100 rb");
+    reasons.push("max reward ≥ $100k");
   }
-  if (breakdown.freshness >= 0.8) reasons.push("baru terverifikasi (≤30 hari)");
-  if (breakdown.competition <= 0.2) reasons.push("kompetisi tinggi — skor ditekan");
+  if (breakdown.freshness >= 0.8) reasons.push("recently verified (≤30 days)");
+  if (breakdown.competition <= 0.2) reasons.push("high competition — score suppressed");
   if (p.deadline) reasons.push("deadline " + p.deadline);
   return { program: p, score, breakdown, dropped, reasons, unknownFields };
 }
@@ -279,12 +279,12 @@ function gateProgram(raw, mode) {
   const ambiguous = unknowns.length > 0 || p.securityTxtOnly === true
     || scopeCount(p) === 0;
 
-  if (tests.publicInvitation === false) reasons.push("tidak ada undangan pengujian publik");
-  if (tests.scopeExplicit === false) reasons.push("scope tidak eksplisit / kosong");
-  if (tests.notExcluded === false) reasons.push("aset/teknik dikecualikan RoE");
-  if (tests.agenticAllowed === false) reasons.push("RoE melarang pengujian otomatis/agentic");
+  if (tests.publicInvitation === false) reasons.push("no public testing invitation");
+  if (tests.scopeExplicit === false) reasons.push("scope not explicit / empty");
+  if (tests.notExcluded === false) reasons.push("assets/techniques excluded by RoE");
+  if (tests.agenticAllowed === false) reasons.push("RoE prohibits automated/agentic testing");
   if (tests.noConflictingSignal === false) {
-    reasons.push("sinyal bertentangan (privat/invite-only/login wall/do-not-test)");
+    reasons.push("conflicting signals (private/invite-only/login wall/do-not-test)");
   }
   if (fails.length > 0) {
     return { program: p, verdict: "TOLAK", mode: m, tests, reasons };
@@ -295,28 +295,28 @@ function gateProgram(raw, mode) {
   // tetap TOLAK (ditangani di atas); paused hanya mengonfirmasi sisanya.
   if (m === "paused") {
     return { program: p, verdict: "KONFIRMASI", mode: m, tests,
-      reasons: ["gate mode paused — discovery/qualify jalan, tanpa pengujian"] };
+      reasons: ["gate mode paused — discovery/qualify run, no testing"] };
   }
   // security.txt ada tapi tanpa undangan eksplisit → human-confirm (matriks v10).
   if (p.securityTxtOnly === true && p.invites_testing !== true) {
-    reasons.push("security.txt ada tapi tanpa undangan pengujian eksplisit");
+    reasons.push("security.txt exists but without an explicit testing invitation");
     return { program: p, verdict: "KONFIRMASI", mode: m, tests, reasons };
   }
   if (ambiguous) {
-    if (unknowns.includes("publicInvitation")) reasons.push("undangan pengujian belum terbukti");
-    if (unknowns.includes("agenticAllowed")) reasons.push("izin pengujian agentic belum terbukti");
+    if (unknowns.includes("publicInvitation")) reasons.push("testing invitation not yet proven");
+    if (unknowns.includes("agenticAllowed")) reasons.push("agentic testing permission not yet proven");
     // Kalibrasi R1 (review Kiro P9): alasan ini dulu kode mati — scope kosong
     // selalu TOLAK lebih dulu. Sesudah P2 (scope kosong + securityTxt =
     // "unknown") jalur ini tercapai.
-    if (scopeCount(p) === 0) reasons.push("scope belum terurai");
-    if (p.securityTxtOnly === true) reasons.push("hanya security.txt, tanpa undangan eksplisit");
+    if (scopeCount(p) === 0) reasons.push("scope not yet parsed");
+    if (p.securityTxtOnly === true) reasons.push("security.txt only, no explicit invitation");
     return { program: p, verdict: "KONFIRMASI", mode: m, tests, reasons };
   }
   if (m === "strict") {
-    reasons.push("mode strict — setiap field butuh konfirmasi manusia");
+    reasons.push("strict mode — every field needs human confirmation");
     return { program: p, verdict: "KONFIRMASI", mode: m, tests, reasons };
   }
-  reasons.push("publik-jelas: undangan + scope + RoE terverifikasi");
+  reasons.push("clearly public: invitation + scope + RoE verified");
   return { program: p, verdict: "LAYAK", mode: m, tests, reasons };
 }
 
@@ -326,7 +326,7 @@ function gateProgram(raw, mode) {
 const SURFACE_ROUTES = {
   "evm-solidity": {
     detectors: "all-17",
-    note: "pattern-scan 17 detektor + Slither cross-check",
+    note: "pattern-scan 17 detectors + Slither cross-check",
   },
   "defi-lending": {
     detectors: ["oracle-passthrough-no-staleness", "commented-out-check",
@@ -396,7 +396,7 @@ function dedupePrograms(existing, candidates) {
       continue;
     }
     if (prev.status === "blacklisted") { skipped.push({ program: p, why: "blacklisted" }); continue; }
-    skipped.push({ program: p, why: "sudah ada (policy tak berubah)" });
+    skipped.push({ program: p, why: "already present (policy unchanged)" });
   }
   return { added, reopened, skipped };
 }
@@ -418,13 +418,13 @@ function intakeRun(programs, existing, opts) {
     const routed = routeProgram(raw);
     const notes = [];
     if (typeof scored.program.reputationGate === "number" && scored.program.reputationGate > 0) {
-      notes.push("gerbang reputasi ≥" + scored.program.reputationGate
-        + " (bukan tes gerbang legal — antrean PARKED sampai reputasi lolos)");
+      notes.push("reputation gate ≥" + scored.program.reputationGate
+        + " (not a legal gate test — queue PARKED until reputation passes)");
     }
     if (typeof scored.program.submitFeeUsd === "number" && scored.program.submitFeeUsd > 0) {
       notes.push("fee submit $" + scored.program.submitFeeUsd);
     }
-    if (scored.program.kycRequired) notes.push("KYC wajib");
+    if (scored.program.kycRequired) notes.push("KYC required");
     results.push({
       id: scored.program.id,
       name: scored.program.name,
@@ -477,7 +477,7 @@ function knownPrograms() {
       scope_assets: ["Amply (26)", "Fulcrom (±40)", "H2 (±22)", "Veno (±15)"],
       scopeAssetCount: 103,
       out_of_scope: ["rounding errors", "DoS", "zero-share pools",
-        "issue yang sudah ada di audit", "vuln yang sudah dikenal di Ethereum/fork lain",
+        "issues already covered by audits", "vulns already known in Ethereum/other forks",
         "testing mainnet/testnet publik"],
       excluded_tests: ["mainnet testing", "public testnet testing"],
       freshness: "2026-11-16",
@@ -528,7 +528,7 @@ function knownPrograms() {
         "StabilityPoolStorage", "LiquidationProxy", "LiquidationStrategyProxy",
         "oracle/*", "token/*", "math/*", "StringUtils"],
       scopeAssetCount: 20,
-      out_of_scope: ["temuan yang tercakup audit Guardian 3 Nov 2026"],
+      out_of_scope: ["findings covered by the Guardian audit of 3 Nov 2026"],
       excluded_tests: [],
       freshness: "2026-11-13",
       deadline: "2026-12-09",
@@ -703,8 +703,8 @@ function renderIntakeCard(r) {
     ["Payout", SCORE_WEIGHTS.payout, b.payout],
     ["Freshness", SCORE_WEIGHTS.freshness, b.freshness],
     ["Attack-surface fit", SCORE_WEIGHTS.fit, b.fit],
-    ["Kompetisi rendah", SCORE_WEIGHTS.competition, b.competition],
-    ["Respons", SCORE_WEIGHTS.response, b.response],
+    ["Low competition", SCORE_WEIGHTS.competition, b.competition],
+    ["Response", SCORE_WEIGHTS.response, b.response],
     ["Novelty", SCORE_WEIGHTS.novelty, b.novelty],
   ].map(([label, w, sub]) =>
     `<tr><td>${escHtml(label)}</td><td>${w}</td><td>${sub.toFixed(2)}</td>`
@@ -712,27 +712,27 @@ function renderIntakeCard(r) {
   const dropped = r.dropped.length
     ? `<p><strong>Drop (qualifier):</strong> ${r.dropped.map(escHtml).join("; ")}</p>` : "";
   const unknown = (r.unknownFields && r.unknownFields.length)
-    ? `<p><strong>Field belum terverifikasi:</strong> ${r.unknownFields.map(escHtml).join(", ")} — skor memakai default netral, angka ini batas atas.</p>` : "";
+    ? `<p><strong>Field not yet verified:</strong> ${r.unknownFields.map(escHtml).join(", ")} — the score uses neutral defaults; this figure is an upper bound.</p>` : "";
   const scoreLine = r.score === null || r.score === undefined
-    ? `<strong>Skor:</strong> — (drop — bukan kandidat)`
-    : `<strong>Skor:</strong> ${r.score} / 100`;
+    ? `<strong>Score:</strong> — (dropped — not a candidate)`
+    : `<strong>Score:</strong> ${r.score} / 100`;
   const gateReasons = r.gate.reasons.length
     ? `<ul>${r.gate.reasons.map((x) => `<li>${escHtml(x)}</li>`).join("")}</ul>` : "";
   const detectors = Array.isArray(r.route.detectors)
     ? r.route.detectors.join(", ") : r.route.detectors;
   const notes = r.notes.length
-    ? `<p><strong>Catatan:</strong> ${r.notes.map(escHtml).join("; ")}</p>` : "";
+    ? `<p><strong>Notes:</strong> ${r.notes.map(escHtml).join("; ")}</p>` : "";
   return `<article class="intake-card">\n`
     + `  <h3>${escHtml(r.name)}</h3>\n`
     + `  <p>${scoreLine}`
     + ` · <span class="${verdictClass(r.gate.verdict)}"><strong>${escHtml(r.gate.verdict)}</strong></span>`
     + ` (mode ${escHtml(r.gate.mode)})</p>\n`
-    + `  <table class="intake-score"><tr><th>Sinyal</th><th>Bobot</th><th>Sub</th><th>Poin</th></tr>${rows}</table>\n`
+    + `  <table class="intake-score"><tr><th>Signal</th><th>Weight</th><th>Sub</th><th>Points</th></tr>${rows}</table>\n`
     + `  ${dropped}\n`
     + `  ${unknown}\n`
-    + `  <p><strong>Alasan gate:</strong></p>${gateReasons}\n`
-    + `  <p><strong>Routing:</strong> antrean ${escHtml(r.route.queue)}`
-    + ` · detektor ${escHtml(detectors)}`
+    + `  <p><strong>Gate reasons:</strong></p>${gateReasons}\n`
+    + `  <p><strong>Routing:</strong> queue ${escHtml(r.route.queue)}`
+    + ` · detectors ${escHtml(detectors)}`
     + (r.route.baseline ? ` · baseline ${escHtml(r.route.baseline)}` : "") + `</p>\n`
     + `  ${notes}\n`
     + `</article>`;
@@ -740,12 +740,12 @@ function renderIntakeCard(r) {
 
 function renderIntakeReport(run) {
   const cards = run.results.map(renderIntakeCard).join("\n");
-  const summary = `<p><strong>Intake:</strong> ${run.ranked.length} lolos ke antrean, `
-    + `${run.dropped.length} drop di qualifier (scope belum terverifikasi — bukan blacklist), `
-    + `${run.blacklisted.length} blacklist, dedupe: ${run.dedupe.added.length} baru, `
-    + `${run.dedupe.reopened.length} re-open, ${run.dedupe.skipped.length} lewati.</p>`
-    + `<p class="disclaimer">Vonis KONFIRMASI = berhenti, JANGAN hunting target itu `
-    + `sampai manusia mengonfirmasi. TOLAK = blacklist.</p>`;
+  const summary = `<p><strong>Intake:</strong> ${run.ranked.length} passed to the queue, `
+    + `${run.dropped.length} dropped at the qualifier (scope not yet verified — not a blacklist), `
+    + `${run.blacklisted.length} blacklisted, dedupe: ${run.dedupe.added.length} new, `
+    + `${run.dedupe.reopened.length} re-opened, ${run.dedupe.skipped.length} skipped.</p>`
+    + `<p class="disclaimer">A KONFIRMASI verdict = stop, do NOT hunt that target `
+    + `until a human confirms. TOLAK = blacklist.</p>`;
   return summary + "\n" + cards;
 }
 
