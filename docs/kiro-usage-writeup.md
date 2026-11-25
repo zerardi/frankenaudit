@@ -2,7 +2,7 @@
 
 > Draf untuk seksi "Built with Kiro" di Devpost 1298511 (M5).
 > Status: DRAF — belum diisi ke Devpost. Angka kredit per 24 Nov 2026
-> 08:41 WIB: terpakai 446,58 / 4.000 (sisa 3.553,42; 39 hari).
+> 16:39 WIB: terpakai 762,68 / 4.000 (sisa 3.237,32; 38 hari).
 
 ## Steering (`.kiro/steering/`)
 
@@ -94,8 +94,8 @@ sebagai detektor 18/19, 21, 22, 23).
 ## Kredit
 
 Hibah Kiroween 4.000 kredit (hangus 31 Des 2026). Terpakai s/d sesi ini:
-**446,58 kredit** (sisa 3.553,42; 39 hari) — dipakai hanya untuk kerja
+**762,68 kredit** (sisa 3.237,32; 38 hari) — dipakai hanya untuk kerja
 nyata (pass audit + review silang), tanpa prompt sampah. Pembangunan
 lokal (scaffold, pipeline, test, PoC fork) dikerjakan tanpa pass Kiro.
-Tempo sejak 12 Nov ≈40 kredit/hari, di bawah garis hitung ulang
-(3.553,42 ÷ 39 ≈ 91/hari).
+Tempo sejak 12 Nov ≈64 kredit/hari, di bawah garis hitung ulang
+(3.237,32 ÷ 38 ≈ 85/hari).
