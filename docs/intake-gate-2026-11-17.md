@@ -8,6 +8,10 @@ memory-dedupe.md (dedupe per id + re-open when the policy changes). ONLY the
 methodology was adopted; the module is NATIVE — no v10 engine Python code was
 pasted in or used.
 
+> Verdict vocabulary (Indonesian product terms, kept as code constants):
+> **LAYAK** = eligible, **KONFIRMASI** = needs human confirmation,
+> **TOLAK** = rejected.
+
 ## Functions
 
 - `normalizeProgram(raw)` — record normalization; `invites_testing` / `pays_bounty` /

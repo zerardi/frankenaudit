@@ -52,7 +52,8 @@ It is stitched ("Frankenstein") from three parts:
 On top of the pipeline sits an **Intake & Gate** stage: candidate
 bounty programs are scored (public scope, payout structure, freshness,
 detector fit, competition, responsiveness, novelty) and gated
-(LAYAK / KONFIRMASI / TOLAK) before any hunting run starts, so the
+(LAYAK = eligible / KONFIRMASI = needs human confirmation / TOLAK =
+rejected) before any hunting run starts, so the
 tool hunts where a beginner can actually submit.
 
 **Why it matters**

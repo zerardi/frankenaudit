@@ -65,7 +65,11 @@ more expensive — so the actual model is recorded every session).
 | MiniPerp test (persona check) | — | Steering + persona verified working |
 
 Full detail of each review: `docs/kiro-crew-review-2026-11-*.md`
-(20+ review documents, one per detector/calibration).
+(20+ review documents, one per detector/calibration). The review
+documents use the hunting verdict tokens (Indonesian product terms, kept
+as code constants): **TERBUKTI** = proven, **KANDIDAT** = candidate,
+**GUGUR** = refuted; gate verdicts: **LAYAK** = eligible,
+**KONFIRMASI** = needs human confirmation, **TOLAK** = rejected.
 
 **How the reviews work (the "referee" pattern):** Kiro tests a detector
 with an adversarial Node harness over cases it invents; jack verifies
