@@ -1,10 +1,10 @@
 # FrankenAudit — Naskah video demo (DRAF, target < 3 menit)
 
 > Draf naskah + shot list untuk video demo YouTube publik (M4).
-> Status: DRAF — belum direkam. Target durasi: ±2:30. Bahasa: Inggris
+> Status: DRAF — belum direkam. Target durasi: ±2:55. Bahasa: Inggris
 > (juri Devpost) dengan subtitle bila perlu.
 
-## Struktur (±150 detik)
+## Struktur (±175 detik)
 
 | # | Waktu | Visual | Narasi (draf) |
 | --- | --- | --- | --- |
@@ -13,10 +13,17 @@
 | 3 | 0:45–1:20 | Halaman laporan: kandidat FA-001…; buka satu kandidat (setOwner, Critical) | "Every candidate is a hypothesis, not a verdict. Location, mechanism, preconditions, impact, and exactly how to verify it. No finding is called proven until a fork proof-of-concept runs." |
 | 4 | 1:20–1:50 | Lookup on-chain: pilih chain Cronos zkEVM, tempel alamat Pool Amply → 6.304 byte | "Then the live check. The app reads deployment state — read-only, no wallet, no transaction — to kill candidates that exist in code but are dead on-chain." |
 | 5 | 1:50–2:15 | Terminal Foundry: `forge test` PoC 4/4 PASS | "The survivors get a fork-level proof-of-concept. Four out of four pass here — including a drain through missing access control." |
-| 6 | 2:15–2:30 | Repo `.kiro/` (steering/specs/hooks) + penutup | "Built with Kiro: a bug-bounty steering persona, specs, and hooks — the same discipline our crew hunts with every day. FrankenAudit. Candidate, not verdict." |
+| 6 | 2:15–2:40 | Walkthrough repo `.kiro/`: buka `steering/bug-bounty.md` → `specs/frankenaudit/tasks.md` → `hooks/candidate-format-check.json`; potong ke `docs/kiro-crew-review-2026-11-23-d26.md` (temuan F1–F12) + terminal suite 977/977 | "Under the hood, everything is driven by Kiro: a bug-bounty steering persona, specs, and a format hook that keeps every candidate falsifiable. And Kiro surprised us — reviewing our newest detector, its crew fired fifty-eight adversarial test cases at it and found twelve issues in our own code. Our referee verified every claim against the real source before one fix landed. Nine hundred seventy-seven tests, all passing." |
+| 7 | 2:40–2:55 | Repo `.kiro/` (steering/specs/hooks) + penutup | "Built with Kiro: a bug-bounty steering persona, specs, and hooks — the same discipline our crew hunts with every day. FrankenAudit. Candidate, not verdict." |
 
 ## Catatan produksi
 
+- Shot 6 BARU (24 Nov 2026, persetujuan Toufik — dari email juri
+  Kiroween: kriteria Technological Implementation + "show me how you
+  used specs, steering and hooks" + "Kiro surprised you"): VO SUDAH
+  direkam 24 Nov 2026 (Helio, `vo-shot6-kiro.mp3`, 26,4 dtk). VO shot penutup
+  lama (`vo-shot6.mp3`) tetap dipakai untuk shot 7 — narasinya tidak
+  berubah.
 - Rekam layar 1080p, app lokal (atau URL live bila M3 sudah live saat
   rekam — lebih baik URL live).
 - Trap-vault: JANGAN sebut "aman" — tegaskan ini kontrak sampel yang
