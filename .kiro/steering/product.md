@@ -1,47 +1,45 @@
 # Product — Steering
 
-## Apa itu FrankenAudit
+## What FrankenAudit is
 
-FrankenAudit adalah asisten audit smart-contract open-source untuk pemburu
-bug bounty pemula. Pengguna menempel alamat kontrak (atau mengunggah file
-`.sol`), aplikasi menjalankan pipeline analisis, dan hasilnya adalah halaman
-laporan berisi **kandidat temuan berformat bug bounty** — bukan vonis.
-Setiap kandidat membawa hipotesis yang bisa difalsifikasi, prasyarat state,
-tebakan severity, dan daftar verifikasi untuk wasit manusia.
+FrankenAudit is an open-source smart-contract audit assistant for beginner
+bug bounty hunters. The user pastes a contract address (or uploads a `.sol`
+file), the app runs the analysis pipeline, and the result is a report page
+of **bug-bounty-formatted finding candidates** — not verdicts. Every
+candidate carries a falsifiable hypothesis, state preconditions, a severity
+guess, and a verification checklist for a human referee.
 
-Nama kerja: FrankenAudit (nama final menunggu persetujuan pemilik proyek).
+## The stitching ("Frankenstein")
 
-## Jahitan ("Frankenstein")
+1. **Slither / static analysis** — automated detectors as the first pass
+   (classic patterns: reentrancy, uninitialized state, shadowing, etc).
+2. **Kiro agent crew** — several Kiro agents with a bug-bounty persona
+   (see `steering/bug-bounty.md`) read the same code from different angles:
+   accounting, access control, oracle, liquidation. The crew cross-debates
+   (inter-model review) before a candidate is written into the report.
+3. **Read-only on-chain lookup** — reads live deployment state (not just
+   code): asset weights, insurance balances, configuration — to falsify
+   candidates that are alive "in code" but dead "in deployment".
+   No transactions, no wallet.
 
-1. **Slither / analisis statis** — detektor otomatis sebagai pass pertama
-   (pola klasik: reentrancy, uninitialized state, shadowing, dll).
-2. **Kiro agent crew** — beberapa agen Kiro dengan persona bug bounty
-   (lihat `steering/bug-bounty.md`) membaca kode yang sama dari sudut
-   berbeda: accounting, access control, oracle, likuidasi. Crew berdebat
-   silang (review antar-model) sebelum kandidat ditulis ke laporan.
-3. **Lookup on-chain read-only** — baca state deployment live (bukan
-   sekadar kode): bobot aset, saldo insurance, konfigurasi — untuk
-   memalsifikasi kandidat yang hanya hidup "di kode" tapi mati
-   "di deployment". Tidak ada transaksi, tidak ada wallet.
+## Product principles
 
-## Prinsip produk
+- **Candidate, not verdict.** No finding is called "proven" before a fork
+  PoC by a referee.
+- **Hypothesis-first.** Every candidate starts from a hypothesis that can
+  be refuted, not from blind pattern matching.
+- **Read-only, always.** No private key, seed, `.env`, or mainnet
+  transaction on any path.
+- **Usable by a judge in 2 minutes:** open the URL → pick a sample contract
+  → read the candidate report. No login, no setup.
 
-- **Candidate, bukan verdict.** Tidak ada temuan yang disebut "terbukti"
-  sebelum PoC fork oleh wasit.
-- **Hypothesis-first.** Setiap kandidat mulai dari hipotesis yang bisa
-  dibantah, bukan dari pola yang dicocokkan buta.
-- **Read-only, selalu.** Tidak ada private key, seed, `.env`, atau
-  transaksi mainnet di jalur mana pun.
-- **Bisa dipakai juri dalam 2 menit:** buka URL → pilih kontrak sampel →
-  lihat laporan kandidat. Tanpa login, tanpa setup.
+## Primary users
 
-## Pengguna utama
+Beginner bug bounty hunters (HackenProof / CodeHawks / Sherlock / Cantina)
+who need a fast attack-surface map before a deep manual audit.
 
-Pemburu bug bounty pemula (HackenProof / CodeHawks / Sherlock / Cantina)
-yang butuh peta permukaan serangan cepat sebelum audit manual mendalam.
+## What this product is not
 
-## Bukan produk ini
-
-- Bukan auto-submitter laporan (FrankenAudit TIDAK PERNAH submit).
-- Bukan audit-as-a-service berbayar.
-- Bukan alat exploit / PoC otomatis di mainnet.
+- Not a report auto-submitter (FrankenAudit NEVER submits).
+- Not a paid audit-as-a-service.
+- Not an exploit tool / automated mainnet PoC runner.

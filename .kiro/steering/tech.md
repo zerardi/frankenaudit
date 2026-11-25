@@ -1,46 +1,47 @@
 # Tech — Steering
 
-## Stack MVP
+## MVP stack
 
-- **Frontend:** aplikasi web statis (HTML + CSS + vanilla JS, tanpa
-  framework berat) di `app/`. Alasan: gampang di-deploy statis untuk juri,
-  nol build step, nol server wajib.
-- **Pipeline analisis (MVP):** dua mode.
-  - **Mode sampel terkurasi** (selalu tersedia, tanpa backend): kontrak
-    sampel + hasil analisis yang sudah dikurasi manusia; pipeline lokal
-    (pattern scan ringan di JS) menandai pola klasik dan memetakan ke
-    format kandidat.
-  - **Mode Slither** (bila tersedia): backend kecil / CLI lokal
-    menjalankan Slither atas file `.sol` yang diunggah, hasilnya
-    dinormalisasi ke format kandidat yang sama. Slither TIDAK termasuk
-    di repo; dipasang terpisah (`pip install slither-analyzer`).
-- **Lookup on-chain:** read-only via RPC publik (eth_call / getCode /
-  getStorageAt). Tanpa kunci, tanpa transaksi.
-- **Kiro agent crew:** agen-agen Kiro (specs di `.kiro/specs/`, steering
-  di `.kiro/steering/`) berperan sebagai reviewer kode; output mereka
-  adalah teks kandidat yang masuk ke laporan. Crew TIDAK mengeksekusi
-  kode target dan TIDAK menyentuh jaringan selain baca publik.
+- **Frontend:** a static web app (HTML + CSS + vanilla JS, no heavy
+  framework) in `app/`. Reason: easy to deploy statically for judges,
+  zero build step, no mandatory server.
+- **Analysis pipeline (MVP):** two modes.
+  - **Curated sample mode** (always available, no backend): sample
+    contracts + human-curated analysis results; a local pipeline (light
+    pattern scan in JS) flags classic patterns and maps them to the
+    candidate format.
+  - **Slither mode** (when available): a small backend / local CLI runs
+    Slither over the uploaded `.sol` file, and the results are normalized
+    into the same candidate format. Slither is NOT included in the repo;
+    it is installed separately (`pip install slither-analyzer`).
+- **On-chain lookup:** read-only via public RPC (eth_call / getCode /
+  getStorageAt). No keys, no transactions.
+- **Kiro agent crew:** Kiro agents (specs in `.kiro/specs/`, steering in
+  `.kiro/steering/`) act as code reviewers; their output is candidate text
+  that goes into the report. The crew does NOT execute target code and does
+  NOT touch any network besides public reads.
 
-## Struktur repo
+## Repo structure
 
 ```
 frankenaudit/
   .kiro/
-    steering/        # persona & konteks tetap (bug-bounty, product, tech)
-    specs/           # spec fitur ala Kiro (requirements/design/tasks)
-    hooks/           # automation hooks Kiro
-  app/               # aplikasi web statis (MVP)
-    samples/         # kontrak .sol sampel terkurasi + analisisnya
-  docs/              # catatan desain & keputusan
+    steering/        # persistent personas & context (bug-bounty, product, tech)
+    specs/           # Kiro-style feature specs (requirements/design/tasks)
+    hooks/           # Kiro automation hooks
+  app/               # static web app (MVP)
+    samples/         # curated sample .sol contracts + their analyses
+  docs/              # design notes & decisions
   LICENSE            # MIT
   README.md
 ```
 
-## Konvensi
+## Conventions
 
-- Bahasa UI & laporan: Indonesia ringkas (pengguna utama tim lokal);
-  istilah teknis Solidity/keamanan tetap Inggris.
-- Format kandidat SELALU mengikuti `.kiro/steering/bug-bounty.md`
-  (ID, lokasi, hipotesis, prasyarat, dampak+severity, bukti, verifikasi).
-- Tidak ada kredensial di repo. `.env` dan kunci di-gitignore.
-- `.kiro/` TIDAK BOLEH di-gitignore (syarat submission Kiroween).
+- UI & report language: English; Solidity/security technical terms stay in
+  English.
+- The candidate format ALWAYS follows `.kiro/steering/bug-bounty.md`
+  (ID, location, hypothesis, preconditions, impact+severity, evidence,
+  verification).
+- No credentials in the repo. `.env` and keys are gitignored.
+- `.kiro/` must NOT be gitignored (a Kiroween submission requirement).
