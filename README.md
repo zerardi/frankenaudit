@@ -67,6 +67,11 @@ frankenaudit/
   977/977 tests passing
 - M2.5 Intake & Gate — done: bug-bounty program scoring (0–100) with
   LAYAK / KONFIRMASI / TOLAK gate verdicts
+
+> **Verdict vocabulary** (Indonesian product terms, kept as code
+> constants): gate verdicts — **LAYAK** = eligible, **KONFIRMASI** =
+> needs human confirmation, **TOLAK** = rejected. Hunting verdicts —
+> **TERBUKTI** = proven, **KANDIDAT** = candidate, **GUGUR** = refuted.
 - M3 live URL — done 25 Nov 2026: https://zerardi.github.io/frankenaudit/
 - Devpost submission deadline: 5 Dec 2026 05:00 WIB (4 Dec 2026 14:00 PT)
 
