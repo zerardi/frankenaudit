@@ -1,75 +1,78 @@
 # FrankenAudit
 
-Asisten audit smart-contract open-source untuk pemburu bug bounty pemula —
-dibangun untuk **Kiroween 2026 (kategori Frankenstein)**.
+An open-source smart-contract audit assistant for beginner bug bounty hunters —
+built for **Kiroween 2026 (Frankenstein category)**.
 
-**Nama kerja** — nama final menunggu persetujuan pemilik proyek.
+**Live app: https://zerardi.github.io/frankenaudit/**
 
-## Apa ini
+## What this is
 
-Tempel alamat kontrak atau unggah file `.sol`, jalankan pipeline analisis,
-dapat halaman laporan berisi **kandidat temuan berformat bug bounty** —
-bukan vonis. Setiap kandidat membawa hipotesis yang bisa difalsifikasi,
-prasyarat state, tebakan severity, dan daftar verifikasi untuk wasit manusia.
+Paste a contract address or upload a `.sol` file, run the analysis pipeline,
+and get a report page of **bug-bounty-formatted finding candidates** — not
+verdicts. Every candidate carries a falsifiable hypothesis, state
+preconditions, a severity guess, and a verification checklist for a human
+referee.
 
-Jahitan ("Frankenstein"):
+The stitching ("Frankenstein"):
 
-1. **Slither / analisis statis** — detektor otomatis sebagai pass pertama.
-2. **Kiro agent crew** — agen-agen Kiro dengan persona bug bounty
-   (`.kiro/steering/bug-bounty.md`) membaca kode yang sama dari sudut
-   berbeda dan review silang sebelum kandidat ditulis ke laporan.
-3. **Lookup on-chain read-only** — baca state deployment live untuk
-   memalsifikasi kandidat yang hanya hidup "di kode" tapi mati
-   "di deployment". Tanpa transaksi, tanpa wallet.
+1. **Slither / static analysis** — automated detectors as the first pass.
+2. **Kiro agent crew** — Kiro agents with a bug-bounty persona
+   (`.kiro/steering/bug-bounty.md`) read the same code from different angles
+   and cross-review before a candidate is written into the report.
+3. **Read-only on-chain lookup** — reads live deployment state to falsify
+   candidates that are alive "in code" but dead "in deployment".
+   No transactions, no wallet.
 
-## Prinsip
+## Principles
 
-- **Candidate, bukan verdict.** Tidak ada temuan yang disebut "terbukti"
-  sebelum PoC fork oleh wasit.
-- **Hypothesis-first.** Setiap kandidat mulai dari hipotesis yang bisa
-  dibantah.
-- **Read-only, selalu.** Tidak ada private key, seed, `.env`, atau
-  transaksi mainnet di jalur mana pun.
-- **Bisa dipakai dalam 2 menit:** buka URL → pilih kontrak sampel →
-  lihat laporan. Tanpa login, tanpa setup.
+- **Candidate, not verdict.** No finding is called "proven" before a fork
+  PoC by a referee.
+- **Hypothesis-first.** Every candidate starts from a hypothesis that can
+  be refuted.
+- **Read-only, always.** No private key, seed, `.env`, or mainnet
+  transaction on any path.
+- **Usable in 2 minutes:** open the URL → pick a sample contract → read
+  the report. No login, no setup.
 
-## Coba lokal (M1)
+## Try it locally
 
 ```bash
 cd app
 python3 -m http.server 8000
-# buka http://localhost:8000
+# open http://localhost:8000
 ```
 
-Mode sampel terkurasi jalan penuh di browser. Mode Slither butuh
-`slither-analyzer` terpasang terpisah (`pip install slither-analyzer`) —
-lihat `.kiro/specs/frankenaudit/design.md`.
+The curated sample mode runs fully in the browser. Slither mode needs
+`slither-analyzer` installed separately (`pip install slither-analyzer`) —
+see `.kiro/specs/frankenaudit/design.md`.
 
-## Struktur
+## Structure
 
 ```
 frankenaudit/
   .kiro/
-    steering/        # persona & konteks tetap (bug-bounty, product, tech)
-    specs/           # spec fitur ala Kiro (requirements/design/tasks)
-    hooks/           # automation hooks Kiro
-  app/               # aplikasi web statis (MVP)
-    samples/         # kontrak .sol sampel terkurasi + analisisnya
-  docs/              # catatan desain & keputusan
+    steering/        # persistent personas & context (bug-bounty, product, tech)
+    specs/           # Kiro-style feature specs (requirements/design/tasks)
+    hooks/           # Kiro automation hooks
+  app/               # static web app (MVP)
+    samples/         # curated sample .sol contracts + their analyses
+  docs/              # design notes & decisions
   LICENSE            # MIT
 ```
 
 ## Status
 
-- M1 scaffold — selesai 13 Nov 2026 (sesi sprint 12:38 WIB)
-- M2 MVP pipeline — target siap-hunting 17–18 Nov 2026
-- M3 URL live — target ±19 Nov 2026
-- Deadline submission Devpost: 5 Des 2026 05:00 WIB
+- M1 scaffold — done 13 Nov 2026
+- M2 MVP pipeline — done: 26 pattern detectors + 30 planted-bug samples,
+  977/977 tests passing
+- M2.5 Intake & Gate — done: bug-bounty program scoring (0–100) with
+  LAYAK / KONFIRMASI / TOLAK gate verdicts
+- M3 live URL — done 25 Nov 2026: https://zerardi.github.io/frankenaudit/
+- Devpost submission deadline: 5 Dec 2026 05:00 WIB (4 Dec 2026 14:00 PT)
 
-Detail progres: lihat log sesi di repo induk (STATUS.md Frankenstein).
-Proyek ini TIDAK PERNAH submit laporan bug bounty — kandidat hasil
-pengujian produk diserahkan ke wasit manusia untuk diverifikasi (fork PoC).
+This project NEVER submits bug bounty reports — candidates produced while
+testing the product are handed to a human referee for verification (fork PoC).
 
-## Lisensi
+## License
 
-MIT — lihat `LICENSE`.
+MIT — see `LICENSE`.
