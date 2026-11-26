@@ -5,6 +5,11 @@ out = "out"
 libs = ["lib"]
 solc_version = "0.8.20"
 evm_version = "london"
+# via-IR + optimizer: RefundTrap.bridge()/RefundTrapRescued.bridge()
+# ("Stack too deep" di codegen legacy — 4 param + 9 argumen call +
+# abi.encode melebihi 16 slot stack). Tanpa ini `forge test` 0/4.
+via_ir = true
+optimizer = true
 remappings = [
   "trapvault/=../app/samples/"
 ]
