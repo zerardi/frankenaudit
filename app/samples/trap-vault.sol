@@ -19,6 +19,8 @@ interface IPriceOracleGetter {
 interface IERC20 {
     function balanceOf(address account) external view returns (uint256);
     function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
 }
 // Panggilan arbitrer ala Hyperbridge ICallDispatcher — dipakai fixture
 // detektor permissionless-dispatcher (BUG 19) + kontrol K.
@@ -50,6 +52,28 @@ library EnumerableSet {
 
     function values(UintSet storage set) internal view returns (uint256[] memory) {
         return set._values;
+    }
+}
+
+// Minimal local stand-in for OpenZeppelin's SafeERC20 (only the subset
+// this sample uses: safeTransfer + safeTransferFrom). Same reason as the
+// EnumerableSet stub above: the sample file must compile standalone for
+// the Foundry PoC; the pipeline only reads text.
+library SafeERC20 {
+    function safeTransfer(IERC20 token, address to, uint256 value) internal {
+        _callOptionalReturn(token, abi.encodeCall(token.transfer, (to, value)));
+    }
+
+    function safeTransferFrom(IERC20 token, address from, address to, uint256 value) internal {
+        _callOptionalReturn(token, abi.encodeCall(token.transferFrom, (from, to, value)));
+    }
+
+    function _callOptionalReturn(IERC20 token, bytes memory data) private {
+        (bool success, bytes memory returndata) = address(token).call(data);
+        require(success, "SafeERC20: low-level call failed");
+        if (returndata.length > 0) {
+            require(abi.decode(returndata, (bool)), "SafeERC20: ERC20 operation did not succeed");
+        }
     }
 }
 
@@ -579,6 +603,7 @@ interface IBridgeHubMini {
 }
 
 contract RefundTrap {
+    using SafeERC20 for IERC20;
     IBridgeHubMini public bridgehub;
     uint256 public chainId;
     address public treasury;
@@ -617,6 +642,7 @@ contract RefundTrap {
 // NEGATIVE CONTROL P — middleware yang sama + rescue ERC20 arbitrer:
 // withdrawToken(token, to, amount) adalah jalur keluar umum -> D23 diam.
 contract RefundTrapRescued {
+    using SafeERC20 for IERC20;
     IBridgeHubMini public bridgehub;
     uint256 public chainId;
     address public treasury;
