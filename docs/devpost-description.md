@@ -1,8 +1,10 @@
 # FrankenAudit — Devpost description (DRAFT, updated session #57, 23 Nov 2026)
 
 > Draft to fill into Devpost draft 1298511 (M5). English (the judges'
-> language). Status: DRAFT — not yet filled into Devpost, not submitted.
-> Finalization + filling need Toufik's approval.
+> language). Status: FINAL (26 Nov 2026, corrected after the hostile
+> pass) — Devpost draft 1298511 was filled 26 Nov with the previous
+> version; re-fill with this version before submit (27 Nov).
+> Final click needs Toufik's approval.
 
 ## Project name
 
@@ -19,35 +21,39 @@ candidates.
 **What it does**
 
 FrankenAudit is an open-source audit assistant for beginner bug-bounty
-hunters. Paste a contract address or upload a `.sol` file, run the
-pipeline, and get a report page of **bug-bounty-formatted candidates** —
-not verdicts. Every candidate carries a falsifiable hypothesis, the
-on-chain preconditions that would make it real, a severity guess, and a
-verification checklist for a human referee.
+hunters. Upload a `.sol` file, run the pipeline, and get a report page of
+**bug-bounty-formatted candidates** — not verdicts. Every candidate carries
+a falsifiable hypothesis, the on-chain preconditions that would make it
+real, a severity guess, and a verification checklist for a human referee.
+A pasted contract address is only checked read-only for deployed bytecode
+(see below) — the pipeline itself runs on uploaded source.
 
 It is stitched ("Frankenstein") from three parts:
 
-1. **Static analysis** — Slither plus 26 hand-built pattern detectors:
-   reentrancy, missing access control, division without zero guard,
-   ecrecover without zero check, tx.origin auth, unchecked call, replay
-   signature, share accounting, commented-out check, commented-out
-   function, upstream diff vs fork baselines, enum semantic shift,
-   oracle passthrough without staleness check, free-memory-pointer
-   without 32-byte rounding, eth-locked receive, vacuous identity
-   check, dead config storage, permissionless dispatcher (plus one-hop
-   forwarder), full-balance sweep, permissionless value send,
-   empty-sublist proof advancing height, JIT reward-accrual sandwich,
-   refund-locked middleware, variant branch without payload consume,
-   guard-asymmetry nav readers, and unbounded-loop inflatable-set
-   accounting.
+1. **Static analysis** — Slither (offline, CLI) plus 25 hand-built pattern
+   detectors and an upstream-diff classifier that labels candidates
+   against fork baselines: reentrancy, missing access control, division
+   without zero guard, ecrecover without zero check, tx.origin auth,
+   unchecked call, replay signature, share accounting, commented-out
+   check, commented-out function, enum semantic shift, oracle passthrough
+   without staleness check, free-memory-pointer without 32-byte rounding,
+   eth-locked receive, vacuous identity check, dead config storage,
+   permissionless dispatcher (plus one-hop forwarder), full-balance sweep,
+   permissionless value send, empty-sublist proof advancing height, JIT
+   reward-accrual sandwich, refund-locked middleware, variant branch
+   without payload consume, guard-asymmetry nav readers, and
+   unbounded-loop inflatable-set accounting.
 2. **Kiro agent crew** — Kiro agents running under a planted bug-bounty
    persona (`.kiro/steering/bug-bounty.md`) read the same code from
-   different angles and cross-review each other before a candidate
-   reaches the report. Every crew claim is re-verified by a human
-   referee against the real code before it becomes a calibration.
-3. **Read-only on-chain lookup** — the app reads live deployment state
-   (`eth_getCode` and state reads) to falsify candidates that exist
-   "in code" but are dead "in deployment". No transactions, no wallet.
+   different angles and cross-reviewed each detector before it shipped.
+   Every crew claim is re-verified by a human referee against the real
+   code before it becomes a calibration.
+3. **Read-only on-chain lookup** — the app checks whether a pasted address
+   is a deployed contract (`eth_getCode`, read-only). It does not fetch
+   source and does not run the pipeline on an address; the human referee
+   falsifies candidates against live state using the app's bytecode check
+   plus each candidate's verification checklist. No transactions, no
+   wallet.
 
 On top of the pipeline sits an **Intake & Gate** stage: candidate
 bounty programs are scored (public scope, payout structure, freshness,
@@ -68,19 +74,22 @@ it in a browser.
 **What we proved while building it (dogfooding)**
 
 - A curated trap contract with 30 planted bugs: the pipeline finds all
-  30, with 977/977 automated tests passing.
+  30, with 977 automated tests passing (960 in a clean clone; 17 skipped —
+  they need the private real-world corpus, see `docs/hunting-summary.md`).
 - Live hunting runs as product testing across 11 real surfaces
   (Fulcrom, Amply, RAAC, Hyperbridge, Flow, Veno on Ethereum and
-  Cronos zkEVM, LCROBridge, Resupply, EFP, Somm): the pipeline reproduces real finding classes the Kiro
-  crew had found by hand — commented-out guards, enum shifts,
+  Cronos zkEVM, LCROBridge, Resupply, EFP, Somm — Veno counted twice,
+  once per chain; counts in `docs/hunting-summary.md`): the pipeline
+  reproduces real finding classes the Kiro crew had found by hand — commented-out guards, enum shifts,
   oracle passthrough, eth-locked receive, permissionless dispatchers,
   empty-sublist consensus proofs, JIT reward-accrual sandwiching,
   refund-locked bridge middleware, unconsumed variant payloads, and
   guard asymmetry between NAV-reading functions. Recall against the crew's Amply
-  candidates rose from 0/7 to 4/7 as detectors were added.
-- Four fork-level PoCs (Foundry) confirm the pipeline's top candidates
-  end-to-end, including a drain via missing access control and a
-  signature-replay mint.
+  candidates rose from 0/7 to 4/7 as detectors were added (0/7 baseline
+  per our internal hunting logs).
+- Four local Foundry PoCs on the trap contract confirm the pipeline's top
+  candidates end-to-end, including a drain via missing access control and
+  a signature-replay mint.
 
 **Built with Kiro**
 
@@ -127,7 +136,10 @@ inside a tool a beginner can actually run.
 ## How to run (draft)
 
 Static app — open `index.html` or serve the `app/` folder. Tests:
-`node tests/run-m2-tests.js` (977/977). Slither cross-check needs
+`node tests/run-m2-tests.js` (977/977 with the full corpus; 960 passed +
+17 skipped in a clean clone — the skipped checks need the private
+real-world corpus under `work/`, which is not in the repo; the suite
+prints the skip count). Slither cross-check needs
 `slither-analyzer` + `solc` (see `docs/slither-crosscheck-2026-11-13.md`).
 
 ## License

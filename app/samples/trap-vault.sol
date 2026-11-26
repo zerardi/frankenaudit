@@ -28,6 +28,31 @@ struct Call {
     bytes data;
 }
 
+// Minimal local stand-in for OpenZeppelin's EnumerableSet (only the
+// UintSet subset this sample uses: add + values). The sample file must
+// compile standalone for the Foundry PoC; the pipeline only reads text.
+library EnumerableSet {
+    struct UintSet {
+        uint256[] _values;
+        mapping(uint256 => uint256) _indexes;
+    }
+
+    function add(UintSet storage set, uint256 value) internal returns (bool) {
+        if (contains(set, value)) return false;
+        set._values.push(value);
+        set._indexes[value] = set._values.length;
+        return true;
+    }
+
+    function contains(UintSet storage set, uint256 value) internal view returns (bool) {
+        return set._indexes[value] != 0;
+    }
+
+    function values(UintSet storage set) internal view returns (uint256[] memory) {
+        return set._values;
+    }
+}
+
 contract TrapVault {
     mapping(address => uint256) public balances;
     mapping(address => uint256) public shares;
@@ -212,19 +237,19 @@ contract TrapVault {
         balances[owner] += value;
     }
 
-    // BUG 9 — COMMENTED-OUT FUNCTION: fungsi pengatur fee dikomentari
-    // utuh, jadi tidak ada jalur yang bisa mengubah feeBps (temuan kelas
-    // AMP-02 Amply — setDebtCeiling dikomentari utuh di PoolConfigurator,
-    // sesi 08:38 WIB 2026-11-14).
+    // BUG 9 — COMMENTED-OUT FUNCTION: the fee-setter function is commented
+    // out entirely, so no path can change feeBps (Amply AMP-02 class —
+    // setDebtCeiling commented out entirely in PoolConfigurator,
+    // 14 Nov 2026 08:38 WIB session).
     // function setFeePaused(uint256 bps) external {
     //     require(msg.sender == owner, "not owner");
     //     feeBps = bps;
     // }
 
-    // NEGATIVE CONTROL G — komentar prosa yang menyebut signature fungsi
-    // (lihat function setFeeActive(uint256) untuk versi yang dimatikan) —
-    // BUKAN definisi fungsi yang dikomentari, jadi detektor
-    // commented-out-function TIDAK boleh memicu di sini.
+    // NEGATIVE CONTROL G — prose comment mentioning a function signature
+    // (see function setFeeActive(uint256) for the disabled version) —
+    // NOT a commented-out function definition, so the
+    // commented-out-function detector must NOT fire here.
 
     // BUG 10 — ORACLE PASSTHROUGH TANPA STALENESS CHECK: harga dari
     // feed dipakai apa adanya; hanya cek price > 0 (BUKAN cek staleness)
@@ -336,7 +361,7 @@ contract TrapVault {
             uint32 size;
             address to = call.to;
             assembly {
-                size := extcodesize(to);
+                size := extcodesize(to)
             }
             if (size == 0) {
                 revert NotContract(to);
@@ -814,6 +839,7 @@ contract NavGuardTrap {
 // Kontrol U (grower ber-guard) dan kontrol V (kunci msg.sender saja) diam —
 // keduanya hidup di tes, bukan di file ini.
 contract VestingBloatTrap {
+    using EnumerableSet for EnumerableSet.UintSet;
     mapping(address => EnumerableSet.UintSet) private allUserDepositIds;
     mapping(address => mapping(uint256 => uint256)) public vests;
     mapping(address => uint256) public currentId;
