@@ -7,10 +7,17 @@ const path = require("path");
 const { runPipeline, normalizeSlither, buildBaselineMap, runProjectPipeline, findDustSignalsInText, applyDustByDesign } = require("../app/pipeline.js");
 const { renderReport } = require("../app/report.js");
 
-let pass = 0, fail = 0;
+let pass = 0, fail = 0, skipped = 0;
 function check(name, cond, extra) {
   if (cond) { pass++; console.log("PASS  " + name); }
   else { fail++; console.log("FAIL  " + name + (extra ? " — " + extra : "")); }
+}
+// Tes korpus eksternal (work/...) dilewati bila file tidak ada (clean clone):
+// skipCheck mendaftarkan cek sebagai lolos-vakum + menghitungnya, supaya
+// suite tetap keluar 0 dan ringkasan jujur menyebut jumlah yang dilewati.
+function skipCheck(name, reason) {
+  skipped++;
+  check(name + " (dilewati — korpus eksternal tidak ada)", true, reason);
 }
 
 const SAMPLES = path.join(__dirname, "..", "app", "samples");
@@ -1534,8 +1541,8 @@ if (fs.existsSync(fulcromReferralPath)) {
     && frVic[0].severityGuess === "Medium",
     JSON.stringify(frVic.map((c) => c.location.function + ":" + c.severityGuess)));
 } else {
-  check("vic v2: ReferralManager Fulcrom asli (file tidak ada — dilewati)",
-    true, "file tidak ditemukan: " + fulcromReferralPath);
+  skipCheck("vic v2: ReferralManager Fulcrom asli",
+    "file tidak ditemukan: " + fulcromReferralPath);
 }
 
 // --- 20. Project-pass lintas-file (residual P1/P2 review Kiro detektor #17,
@@ -1651,7 +1658,9 @@ if (fs.existsSync(fulcromVaultPath) && fs.existsSync(fulcromVaultUtilsPath)) {
     ppReal.dropped.some((d) => d.varName === "maxLeverage" && /getter/.test(d.readBy.join(" "))),
     JSON.stringify(ppReal.dropped.map((d) => d.varName)));
 } else {
-  check("project-pass: Vault Fulcrom asli (file tidak ada — dilewati)", true,
+  skipCheck("project-pass: Vault Fulcrom asli — maxLeverage HILANG (dibaca VaultUtils)",
+    "file tidak ditemukan");
+  skipCheck("project-pass: Vault Fulcrom asli — dropped maxLeverage kind=getter",
     "file tidak ditemukan");
 }
 
@@ -5817,12 +5826,17 @@ check("D21 48i stale-check revert -> 1",
 // 48j. File nyata EcdsaBeefy.sol (verbatim, Hyperbridge @ 3cd7d227) → 1 Low.
 const ecdsaPath = path.join(__dirname, "..", "..", "..", "work",
   "hyperbridge-flow", "hyperbridge", "evm", "src", "consensus", "EcdsaBeefy.sol");
-const ecdsaSrc = fs.readFileSync(ecdsaPath, "utf8");
-const c48j = runPipeline(ecdsaSrc, "EcdsaBeefy.sol").candidates
-  .filter((c) => c.detector === "empty-sublist-proof-advances-height");
-check("D21 48j EcdsaBeefy verbatim -> 1 Low",
-  c48j.length === 1 && c48j[0].severityGuess === "Low",
-  "dapat " + JSON.stringify(c48j.map((c) => c.location.function + ":" + c.severityGuess)));
+if (fs.existsSync(ecdsaPath)) {
+  const ecdsaSrc = fs.readFileSync(ecdsaPath, "utf8");
+  const c48j = runPipeline(ecdsaSrc, "EcdsaBeefy.sol").candidates
+    .filter((c) => c.detector === "empty-sublist-proof-advances-height");
+  check("D21 48j EcdsaBeefy verbatim -> 1 Low",
+    c48j.length === 1 && c48j[0].severityGuess === "Low",
+    "dapat " + JSON.stringify(c48j.map((c) => c.location.function + ":" + c.severityGuess)));
+} else {
+  skipCheck("D21 48j EcdsaBeefy verbatim -> 1 Low",
+    "file tidak ditemukan: " + ecdsaPath);
+}
 
 // --- Seksi 48b. Kalibrasi R21.1: review Kiro Opus 5.5 atas D21 (sesi
 // 8da7a082, vonis NEEDS WORK — 42 kasus: 8 benar, 15 FP, 19 FN; probe
@@ -6029,10 +6043,16 @@ contract Mix is IMix {
 check("COF 49-5 campuran iface+kontrak tanpa baseline -> 1 (tetap)",
   cofCount(cofMixed, "Mix.sol") === 1);
 const fs49 = require("fs");
-const dai49 = fs49.readFileSync(
-  "/home/hatch/workspace/goals/bug-bounty-web3-immunefi/hidden_files/work/veno-source/ybUSD_IMPL/src_interface_ISavingsDai.sol", "utf8");
-check("COF 49-6 ISavingsDai nyata tanpa baseline -> 0 (32 FP hilang)",
-  cofCount(dai49, "ISavingsDai.sol") === 0);
+const dai49Path = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "ybUSD_IMPL", "src_interface_ISavingsDai.sol");
+if (fs49.existsSync(dai49Path)) {
+  const dai49 = fs49.readFileSync(dai49Path, "utf8");
+  check("COF 49-6 ISavingsDai nyata tanpa baseline -> 0 (32 FP hilang)",
+    cofCount(dai49, "ISavingsDai.sol") === 0);
+} else {
+  skipCheck("COF 49-6 ISavingsDai nyata tanpa baseline -> 0 (32 FP hilang)",
+    "file tidak ditemukan: " + dai49Path);
+}
 
 // --- Seksi 50. Kalibrasi R20.2: permissionless-value-send (sesi #33,
 // 19 Nov 2026 — residual hunting Veno: FA-001 YbEth.unbond).
@@ -6260,10 +6280,16 @@ function freeFn() {} `;
 check("COF 52-2 F7 iface + free function -> 1 (bukan interface-only)",
   cofCount(f7b52, "IFree.sol") === 1);
 const fs52 = require("fs");
-const dai52 = fs52.readFileSync(
-  "/home/hatch/workspace/goals/bug-bounty-web3-immunefi/hidden_files/work/veno-source/ybUSD_IMPL/src_interface_ISavingsDai.sol", "utf8");
-check("COF 52-3 ISavingsDai nyata -> 0 (kontrol)",
-  cofCount(dai52, "ISavingsDai.sol") === 0);
+const dai52Path = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "ybUSD_IMPL", "src_interface_ISavingsDai.sol");
+if (fs52.existsSync(dai52Path)) {
+  const dai52 = fs52.readFileSync(dai52Path, "utf8");
+  check("COF 52-3 ISavingsDai nyata -> 0 (kontrol)",
+    cofCount(dai52, "ISavingsDai.sol") === 0);
+} else {
+  skipCheck("COF 52-3 ISavingsDai nyata -> 0 (kontrol)",
+    "file tidak ditemukan: " + dai52Path);
+}
 check("COF 52-4 F7 badan dikomentari + baseline absent -> 1 (badan menang)",
   cofCount(f7a52, "ITrim.sol",
     { baseline: { "ITrim.sol": "pragma solidity ^0.8.20;\ninterface ITrim {\n    function live() external;\n}" } }) === 1);
@@ -6588,24 +6614,37 @@ check("D22 56-1 fixture tiga kaki fee-0 -> 1 Medium @ accrueReward",
 // Low mode single-file (fee dideklarasi di YbEthStorage.sol, bukan file ini).
 const ybEthPath = path.join(__dirname, "..", "..", "..", "work",
   "veno-source", "ybETH_IMPL", "src_YbEth.sol");
-const ybEthSrc = fs.readFileSync(ybEthPath, "utf8");
-const c56b = d22(ybEthSrc, "src_YbEth.sol");
-check("D22 56-2 YbEth verbatim -> 1 Low @ accrueReward (fee lintas-file)",
-  c56b.length === 1 && c56b[0].severityGuess === "Low"
-    && c56b[0].location.function === "accrueReward",
-  "dapat " + JSON.stringify(c56b.map((c) => c.location.function + ":" + c.severityGuess)));
-// 56-2b. YbEth via runProjectPipeline (storage ikut korpus) -> 1 Medium
-// (unbondingFee default-0 terbaca dari YbEthStorage.sol).
-const ybEthStorageSrc = fs.readFileSync(path.join(__dirname, "..", "..", "..",
-  "work", "veno-source", "ybETH_IMPL", "src_YbEthStorage.sol"), "utf8");
-const c56c = runProjectPipeline([
-  { name: "src_YbEth.sol", text: ybEthSrc },
-  { name: "src_YbEthStorage.sol", text: ybEthStorageSrc },
-]).candidates.filter((cc) => cc.detector === "jit-reward-accrual-sandwich");
-check("D22 56-2b YbEth mode proyek -> 1 Medium @ accrueReward",
-  c56c.length === 1 && c56c[0].severityGuess === "Medium"
-    && c56c[0].location.function === "accrueReward",
-  "dapat " + JSON.stringify(c56c.map((cc) => cc.location.function + ":" + cc.severityGuess)));
+const ybEthStoragePath = path.join(__dirname, "..", "..", "..",
+  "work", "veno-source", "ybETH_IMPL", "src_YbEthStorage.sol");
+if (fs.existsSync(ybEthPath)) {
+  const ybEthSrc = fs.readFileSync(ybEthPath, "utf8");
+  const c56b = d22(ybEthSrc, "src_YbEth.sol");
+  check("D22 56-2 YbEth verbatim -> 1 Low @ accrueReward (fee lintas-file)",
+    c56b.length === 1 && c56b[0].severityGuess === "Low"
+      && c56b[0].location.function === "accrueReward",
+    "dapat " + JSON.stringify(c56b.map((c) => c.location.function + ":" + c.severityGuess)));
+  // 56-2b. YbEth via runProjectPipeline (storage ikut korpus) -> 1 Medium
+  // (unbondingFee default-0 terbaca dari YbEthStorage.sol).
+  if (fs.existsSync(ybEthStoragePath)) {
+    const ybEthStorageSrc = fs.readFileSync(ybEthStoragePath, "utf8");
+    const c56c = runProjectPipeline([
+      { name: "src_YbEth.sol", text: ybEthSrc },
+      { name: "src_YbEthStorage.sol", text: ybEthStorageSrc },
+    ]).candidates.filter((cc) => cc.detector === "jit-reward-accrual-sandwich");
+    check("D22 56-2b YbEth mode proyek -> 1 Medium @ accrueReward",
+      c56c.length === 1 && c56c[0].severityGuess === "Medium"
+        && c56c[0].location.function === "accrueReward",
+      "dapat " + JSON.stringify(c56c.map((cc) => cc.location.function + ":" + cc.severityGuess)));
+  } else {
+    skipCheck("D22 56-2b YbEth mode proyek -> 1 Medium @ accrueReward",
+      "file tidak ditemukan: " + ybEthStoragePath);
+  }
+} else {
+  skipCheck("D22 56-2 YbEth verbatim -> 1 Low @ accrueReward (fee lintas-file)",
+    "file tidak ditemukan: " + ybEthPath);
+  skipCheck("D22 56-2b YbEth mode proyek -> 1 Medium @ accrueReward",
+    "file tidak ditemukan: " + ybEthPath);
+}
 // 56-3. Accrual ikut mint share -> bukan accrual (harga tidak naik) -> 0.
 check("D22 56-3 accrual ikut mint -> 0",
   d22(JIT56.replace("        totalPooledEth += amount;\n        txnHash2Amount[txnHash] = amount;",
@@ -6997,12 +7036,17 @@ check("D23 57-1 fixture mini -> 1 Medium @ bridge",
 // panggilan bridge hidup di _bridgeErc20/_bridgeEth internal).
 const bmPath = path.join(__dirname, "..", "..", "..", "work",
   "veno-source", "BridgeMiddleware", "src_BridgeMiddleware.sol");
-const bmSrc = fs.readFileSync(bmPath, "utf8");
-const c57b = d23(bmSrc, "src_BridgeMiddleware.sol");
-check("D23 57-2 BridgeMiddleware verbatim -> 1 Medium @ bridge",
-  c57b.length === 1 && c57b[0].severityGuess === "Medium"
-    && c57b[0].location.function === "bridge",
-  "dapat " + JSON.stringify(c57b.map((c) => c.location.function + ":" + c.severityGuess)));
+if (fs.existsSync(bmPath)) {
+  const bmSrc = fs.readFileSync(bmPath, "utf8");
+  const c57b = d23(bmSrc, "src_BridgeMiddleware.sol");
+  check("D23 57-2 BridgeMiddleware verbatim -> 1 Medium @ bridge",
+    c57b.length === 1 && c57b[0].severityGuess === "Medium"
+      && c57b[0].location.function === "bridge",
+    "dapat " + JSON.stringify(c57b.map((c) => c.location.function + ":" + c.severityGuess)));
+} else {
+  skipCheck("D23 57-2 BridgeMiddleware verbatim -> 1 Medium @ bridge",
+    "file tidak ditemukan: " + bmPath);
+}
 // 57-3. + rescueToken(token, to, amount) -> 0 (jalur keluar arbitrer ada).
 check("D23 57-3 rescue ERC20 arbitrer -> 0",
   d23(MID57.replace("    function bridge(",
@@ -7077,16 +7121,28 @@ check("D23 57-12 trap-vault -> tepat 1 @ bridge",
 // /tmp/probe-d23-r23.js 35/35 PASS pasca-kalibrasi. F14 DITOLAK wasit
 // (nomor baris 234 file asli BENAR — artefak stub Kiro; dikunci 57b-0).
 // 57b-0. F14: baris panggilan bridge BridgeMiddleware asli = 234.
-const bm57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "veno-source", "BridgeMiddleware", "src_BridgeMiddleware.sol"), "utf8");
-check("D23 57b-0 baris panggilan bridge file asli = 234",
-  d23(bm57b, "src_BridgeMiddleware.sol").length === 1
-  && /\(line 234\)/.test(d23(bm57b, "src_BridgeMiddleware.sol")[0].evidence));
+const bm57bPath = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "BridgeMiddleware", "src_BridgeMiddleware.sol");
+if (fs.existsSync(bm57bPath)) {
+  const bm57b = fs.readFileSync(bm57bPath, "utf8");
+  check("D23 57b-0 baris panggilan bridge file asli = 234",
+    d23(bm57b, "src_BridgeMiddleware.sol").length === 1
+    && /\(line 234\)/.test(d23(bm57b, "src_BridgeMiddleware.sol")[0].evidence));
+} else {
+  skipCheck("D23 57b-0 baris panggilan bridge file asli = 234",
+    "file tidak ditemukan: " + bm57bPath);
+}
 // 57b-1. F12: zkCROMintAndBridge verbatim (Direct, refund ke user) -> 0.
-const zk57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "veno-source", "zkCROMintAndBridge", "contracts_ZkCroMintAndBridge.sol"), "utf8");
-check("D23 57b-1 zkCROMintAndBridge verbatim (Direct) -> 0",
-  d23(zk57b, "contracts_ZkCroMintAndBridge.sol").length === 0);
+const zk57bPath = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "zkCROMintAndBridge", "contracts_ZkCroMintAndBridge.sol");
+if (fs.existsSync(zk57bPath)) {
+  const zk57b = fs.readFileSync(zk57bPath, "utf8");
+  check("D23 57b-1 zkCROMintAndBridge verbatim (Direct) -> 0",
+    d23(zk57b, "contracts_ZkCroMintAndBridge.sol").length === 0);
+} else {
+  skipCheck("D23 57b-1 zkCROMintAndBridge verbatim (Direct) -> 0",
+    "file tidak ditemukan: " + zk57bPath);
+}
 // 57b-2. F12b/c: Direct refundRecipient=address(this) -> 1; =msg.sender -> 0.
 const DIR57 = "return bridgehub.requestL2TransactionDirect(L2TransactionRequestDirect({chainId: chainId, mintValue: msg.value, l2Contract: _l2Receiver, l2Value: 0, l2Calldata: \"\", l2GasLimit: 100000, l2GasPerPubdataByteLimit: 800, factoryDeps: new bytes[](0), refundRecipient: RECIP}));";
 check("D23 57b-2 Direct refundRecipient address(this)->1, msg.sender->0",
@@ -7223,13 +7279,20 @@ check("D23 57b-19 Mock sufiks + script .s.sol -> 0",
   d23(MID57, "src/BridgeMiddlewareMock.sol").length === 0
   && d23(MID57, "script/Deploy.s.sol").length === 0);
 // 57b-20. W1: ybETHBridge + ybUSDBridge verbatim (transitif) -> 0.
-const yb57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "veno-source", "ybETHBridge", "src_YbEthBridge.sol"), "utf8");
-const yu57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "veno-source", "ybUSDBridge", "src_YBUSDBridge.sol"), "utf8");
-check("D23 57b-20 ybETH/ybUSD Bridge verbatim (transitif) -> 0",
-  d23(yb57b, "src_YbEthBridge.sol").length === 0
-  && d23(yu57b, "src_YBUSDBridge.sol").length === 0);
+const yb57bPath = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "ybETHBridge", "src_YbEthBridge.sol");
+const yu57bPath = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "ybUSDBridge", "src_YBUSDBridge.sol");
+if (fs.existsSync(yb57bPath) && fs.existsSync(yu57bPath)) {
+  const yb57b = fs.readFileSync(yb57bPath, "utf8");
+  const yu57b = fs.readFileSync(yu57bPath, "utf8");
+  check("D23 57b-20 ybETH/ybUSD Bridge verbatim (transitif) -> 0",
+    d23(yb57b, "src_YbEthBridge.sol").length === 0
+    && d23(yu57b, "src_YBUSDBridge.sol").length === 0);
+} else {
+  skipCheck("D23 57b-20 ybETH/ybUSD Bridge verbatim (transitif) -> 0",
+    "file tidak ditemukan: " + yb57bPath + " / " + yu57bPath);
+}
 // 57b-21. C20: claimFailed penerus ke depositor -> 0 (rescue sah).
 check("D23 57b-21 claimFailed penerus -> 0",
   d23(MID57.replace("    function bridge(",
@@ -7241,15 +7304,27 @@ check("D23 57b-22 execute arbitrer onlyOwner -> 0",
     "    function execute(address target, bytes calldata data) external onlyOwner {\n"
     + "        (bool ok,) = target.call(data);\n        require(ok);\n    }\n    function bridge(")).length === 0);
 // 57b-23. F19: L1Bridgehub verbatim (inti bridge) -> 0.
-const l1b57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "veno-source", "BridgeHub_IMPL", "contracts", "core", "bridgehub", "L1Bridgehub.sol"), "utf8");
-check("D23 57b-23 L1Bridgehub verbatim (inti bridge) -> 0",
-  d23(l1b57b, "L1Bridgehub.sol").length === 0);
+const l1b57bPath = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "BridgeHub_IMPL", "contracts", "core", "bridgehub", "L1Bridgehub.sol");
+if (fs.existsSync(l1b57bPath)) {
+  const l1b57b = fs.readFileSync(l1b57bPath, "utf8");
+  check("D23 57b-23 L1Bridgehub verbatim (inti bridge) -> 0",
+    d23(l1b57b, "L1Bridgehub.sol").length === 0);
+} else {
+  skipCheck("D23 57b-23 L1Bridgehub verbatim (inti bridge) -> 0",
+    "file tidak ditemukan: " + l1b57bPath);
+}
 // 57b-24. F19b: AssetRouterBase verbatim (inti bridge) -> 0.
-const ar57b = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "veno-source", "L1SharedBridge_IMPL", "contracts", "bridge", "asset-router", "AssetRouterBase.sol"), "utf8");
-check("D23 57b-24 AssetRouterBase verbatim (inti bridge) -> 0",
-  d23(ar57b, "AssetRouterBase.sol").length === 0);
+const ar57bPath = path.join(__dirname, "..", "..", "..", "work",
+  "veno-source", "L1SharedBridge_IMPL", "contracts", "bridge", "asset-router", "AssetRouterBase.sol");
+if (fs.existsSync(ar57bPath)) {
+  const ar57b = fs.readFileSync(ar57bPath, "utf8");
+  check("D23 57b-24 AssetRouterBase verbatim (inti bridge) -> 0",
+    d23(ar57b, "AssetRouterBase.sol").length === 0);
+} else {
+  skipCheck("D23 57b-24 AssetRouterBase verbatim (inti bridge) -> 0",
+    "file tidak ditemukan: " + ar57bPath);
+}
 
 // --- Seksi 58. Detektor ke-24: variant-branch-no-payload-consume (L-1)
 // (backlog detektor sesi BB pagi 20 Nov 2026 — Hyperbridge Codec.DecodeHeader
@@ -7295,15 +7370,22 @@ check("D24 58-1 fixture mini -> 1 Info @ decode, cond OTHER",
   "dapat " + JSON.stringify(c58.map((c) => c.location.function + ":" + c.severityGuess)));
 // 58-2. Codec.sol verbatim (repo Hyperbridge @ 3cd7d227) -> 1 Info @
 // DecodeHeader (cabang Other); RUNTIME_ENVIRONMENT_UPDATED tidak di-flag.
-const codec58 = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "hyperbridge-flow", "hyperbridge", "evm", "src", "consensus", "Codec.sol"), "utf8");
-const c582 = d24(codec58, "Codec.sol");
-check("D24 58-2 Codec verbatim -> 1 Info @ DecodeHeader",
-  c582.length === 1 && c582[0].severityGuess === "Info"
-    && c582[0].location.function === "DecodeHeader"
-    && c582[0].evidence.indexOf("OTHER") !== -1
-    && c582[0].evidence.indexOf("RUNTIME_ENVIRONMENT_UPDATED") === -1,
-  "dapat " + JSON.stringify(c582.map((c) => c.location.function + ":" + c.severityGuess)));
+const codec58Path = path.join(__dirname, "..", "..", "..", "work",
+  "hyperbridge-flow", "hyperbridge", "evm", "src", "consensus", "Codec.sol");
+let c582 = null; // dipakai lagi di cek 58b-27 di bawah
+if (fs.existsSync(codec58Path)) {
+  const codec58 = fs.readFileSync(codec58Path, "utf8");
+  c582 = d24(codec58, "Codec.sol");
+  check("D24 58-2 Codec verbatim -> 1 Info @ DecodeHeader",
+    c582.length === 1 && c582[0].severityGuess === "Info"
+      && c582[0].location.function === "DecodeHeader"
+      && c582[0].evidence.indexOf("OTHER") !== -1
+      && c582[0].evidence.indexOf("RUNTIME_ENVIRONMENT_UPDATED") === -1,
+    "dapat " + JSON.stringify(c582.map((c) => c.location.function + ":" + c.severityGuess)));
+} else {
+  skipCheck("D24 58-2 Codec verbatim -> 1 Info @ DecodeHeader",
+    "file tidak ditemukan: " + codec58Path);
+}
 // 58-3. Cabang Other ikut mengonsumsi payload (readByte) -> 0.
 check("D24 58-3 Other ikut konsumsi -> 0",
   d24(MINI58.replace("                // hanya flag, payload tidak dibaca\n",
@@ -7671,9 +7753,9 @@ const ONCE58B = H58B + `
 }`;
 check("D24 58b-26 F22 tag dibaca sekali sebelum loop -> 0", d24(ONCE58B).length === 0);
 // 58b-27. F23: semua kandidat D24 berseverity Info.
-check("D24 58b-27 F23 severity Info",
+check("D24 58b-27 F23 severity Info" + (c582 === null ? " (Codec dilewati)" : ""),
   c58.length === 1 && c58[0].severityGuess === "Info"
-    && c582.length === 1 && c582[0].severityGuess === "Info");
+    && (c582 === null || (c582.length === 1 && c582[0].severityGuess === "Info")));
 
 // --- Seksi 59. Kalibrasi R-DIV-1: guard division-no-guard bentuk
 // early-return / assignment / else-branch / if-positif (sesi #44,
@@ -8743,14 +8825,21 @@ check("D25 67-1 fixture mini -> 2 Low @ previewRedeem + convertToAssets",
 // + maxDeposit (juga memanggil _getTotalAssetsAndTotalSupply tanpa guard —
 // temuan detektor ini di luar daftar backlog); totalAssets/maxWithdraw/
 // maxRedeem/maxMint TIDAK di-flag.
-const cellar67 = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "somm", "cellar-contracts", "src", "base", "Cellar.sol"), "utf8");
-const c672 = d25(cellar67, "Cellar.sol");
-check("D25 67-2 Cellar verbatim -> 7 Low (6 preview/convert + maxDeposit)",
-  c672.length === 7 && c672.every((c) => c.severityGuess === "Low")
-    && c672.map((c) => c.location.function).sort().join(",")
-      === "convertToAssets,convertToShares,maxDeposit,previewDeposit,previewMint,previewRedeem,previewWithdraw",
-  "dapat " + JSON.stringify(c672.map((c) => c.location.function)));
+const cellar67Path = path.join(__dirname, "..", "..", "..", "work",
+  "somm", "cellar-contracts", "src", "base", "Cellar.sol");
+let c672 = null; // dipakai lagi di cek 67b-12 di bawah
+if (fs.existsSync(cellar67Path)) {
+  const cellar67 = fs.readFileSync(cellar67Path, "utf8");
+  c672 = d25(cellar67, "Cellar.sol");
+  check("D25 67-2 Cellar verbatim -> 7 Low (6 preview/convert + maxDeposit)",
+    c672.length === 7 && c672.every((c) => c.severityGuess === "Low")
+      && c672.map((c) => c.location.function).sort().join(",")
+        === "convertToAssets,convertToShares,maxDeposit,previewDeposit,previewMint,previewRedeem,previewWithdraw",
+    "dapat " + JSON.stringify(c672.map((c) => c.location.function)));
+} else {
+  skipCheck("D25 67-2 Cellar verbatim -> 7 Low (6 preview/convert + maxDeposit)",
+    "file tidak ditemukan: " + cellar67Path);
+}
 // 67-3. Semua saudara ber-guard -> 0.
 check("D25 67-3 semua ber-guard -> 0",
   d25(MINI67.replace("    function previewRedeem(uint256 shares) public view returns (uint256 assets) {\n",
@@ -9009,11 +9098,11 @@ check("D25 67b-11 F11 function-type param bukan helper view -> 0",
   d25(F11_67B).length === 0, "dapat " + JSON.stringify(d25(F11_67B).map((c) => c.location.function)));
 // 67b-12. Regresi pasca-R25: Cellar verbatim TETAP 7 Low; maxMint dan
 // getCreditPositions TIDAK ikut ter-flag (F6 dibatasi).
-check("D25 67b-12 Cellar pasca-R25 tetap 7 Low, maxMint tidak ter-flag",
-  c672.length === 7 && c672.every((c) => c.severityGuess === "Low")
+check("D25 67b-12 Cellar pasca-R25 tetap 7 Low, maxMint tidak ter-flag" + (c672 === null ? " (Cellar dilewati)" : ""),
+  c672 === null || (c672.length === 7 && c672.every((c) => c.severityGuess === "Low")
     && c672.map((c) => c.location.function).sort().join(",")
-      === "convertToAssets,convertToShares,maxDeposit,previewDeposit,previewMint,previewRedeem,previewWithdraw",
-  "dapat " + JSON.stringify(c672.map((c) => c.location.function)));
+      === "convertToAssets,convertToShares,maxDeposit,previewDeposit,previewMint,previewRedeem,previewWithdraw"),
+  "dapat " + JSON.stringify((c672 || []).map((c) => c.location.function)));
 // 67b-13. Regresi pasca-R25: trap-vault tetap 1 @ previewRedeem (BUG 26).
 check("D25 67b-13 trap-vault pasca-R25 tetap 1 @ previewRedeem",
   trapD25.length === 1 && trapD25[0].location.function === "previewRedeem",
@@ -9057,13 +9146,19 @@ check("D26 68-1 fixture mini -> 1 Medium @ vestedBalanceOf",
 // vestedBalanceOf + totalBalanceOf (keduanya me-loop seluruh set via
 // .values()); withdrawAll/withdrawAnyFor bukan view, userDepositIds tanpa
 // loop, vestedBalanceOfDeposit tanpa loop — TIDAK di-flag.
-const vesting68 = fs.readFileSync(path.join(__dirname, "..", "..", "..", "work",
-  "somm", "cellar-contracts", "src", "modules", "vesting", "VestingSimple.sol"), "utf8");
-const c682 = d26(vesting68, "VestingSimple.sol");
-check("D26 68-2 VestingSimple verbatim -> 2 Medium (vestedBalanceOf + totalBalanceOf)",
-  c682.length === 2 && c682.every((c) => c.severityGuess === "Medium")
-    && c682.map((c) => c.location.function).sort().join(",") === "totalBalanceOf,vestedBalanceOf",
-  "dapat " + JSON.stringify(c682.map((c) => c.location.function)));
+const vesting68Path = path.join(__dirname, "..", "..", "..", "work",
+  "somm", "cellar-contracts", "src", "modules", "vesting", "VestingSimple.sol");
+if (fs.existsSync(vesting68Path)) {
+  const vesting68 = fs.readFileSync(vesting68Path, "utf8");
+  const c682 = d26(vesting68, "VestingSimple.sol");
+  check("D26 68-2 VestingSimple verbatim -> 2 Medium (vestedBalanceOf + totalBalanceOf)",
+    c682.length === 2 && c682.every((c) => c.severityGuess === "Medium")
+      && c682.map((c) => c.location.function).sort().join(",") === "totalBalanceOf,vestedBalanceOf",
+    "dapat " + JSON.stringify(c682.map((c) => c.location.function)));
+} else {
+  skipCheck("D26 68-2 VestingSimple verbatim -> 2 Medium (vestedBalanceOf + totalBalanceOf)",
+    "file tidak ditemukan: " + vesting68Path);
+}
 // 68-3. Grower ber-guard (onlyOwner) -> 0.
 check("D26 68-3 grower onlyOwner -> 0",
   d26(MINI68.replace("function deposit(uint256 assets, address receiver) public returns",
@@ -9338,5 +9433,5 @@ check("D26 68b-12 F12 warisan Base/Child -> 1",
     + "        ids[r].add(a);\n    }\n}").length === 1);
 
 // --- Ringkasan
-console.log("\n" + pass + " lolos, " + fail + " gagal.");
+console.log("\n" + pass + " lolos, " + fail + " gagal, " + skipped + " dilewati (korpus eksternal).");
 process.exit(fail ? 1 : 0);

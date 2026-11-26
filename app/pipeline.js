@@ -2807,9 +2807,9 @@ function detectOraclePassthrough(fn, fileName, id) {
       + "for collateral/debt valuation, liquidation, mint, or redeem; (2) "
       + "realistic staleness for that feed (long heartbeat, "
       + "latestAnswer deprecated, L2 without a sentinel); (3) there is no guard "
-      + "di jalur lain (fallback oracle / sentinel / circuit breaker). "
-      + "High only if a PoC shows the stale-price gap can be turned "
-      + "becomes excess borrowing"],
+      + "on any other path (fallback oracle / sentinel / circuit breaker). "
+      + "High only if a PoC shows the stale-price gap can be turned into "
+      + "excess borrowing"],
     source: "pattern-scan",
   })];
 }

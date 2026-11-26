@@ -1,8 +1,11 @@
 # FrankenAudit — How we used Kiro (DRAFT Kiro usage write-up)
 
 > Draft for the "Built with Kiro" section of Devpost 1298511 (M5).
-> Status: DRAFT — not yet filled into Devpost. Credit figures as of
-> 25 Nov 2026 16:40 WIB: used 778.92 / 4,000 (remaining 3,221.08; 37 days).
+> Status: FINAL (26 Nov 2026, corrected after the hostile pass) —
+> Devpost draft 1298511 was filled 26 Nov with the previous version;
+> re-fill with this version before submit (27 Nov).
+> Credit figures as of 26 Nov 2026 08:53 WIB: used 799.34 / 4,000
+> (remaining 3,200.66; 37 days).
 
 ## Steering (`.kiro/steering/`)
 
@@ -61,7 +64,7 @@ more expensive — so the actual model is recorded every session).
 | Calibration R20.3c over Kiro review R20.3b (D20) | Opus 5.5 | NEEDS WORK 20/22 + 11 findings → F1/F3/F8/F11/T5 + referee's F2b proven + fixed; F2/F4/F5/F6/F10 rejected (artifact/invalid); F7/F9 limits documented → 11 tests in Section 64, suite 879/879 |
 | Calibration R-COF-3 + R-COF-3a over a Kiro review (commented-out-check: live `if + revert` counterpart) | Opus 5.5 | NEEDS WORK 35 cases + 12 findings → F2/F3/F5/F6/F9/F11 proven + fixed (the literal rule REMOVED; strings masked; revert arguments not counted; else-revert + live require recognized); F1 rejected (harness artifact); F8 per conservative design; F4/F10/F12 limits documented → 9 tests in Section 65 + 9 tests in Section 66, suite 899/899 |
 | Review of detector 25 (guard-asymmetry nav readers) | Opus 5.5 | NEEDS WORK, 11 findings F1–F11 → referee calibration R25: 11/11 PROVEN + fixed (guard propagation through closures, guard via helper/modifier *reentr*, matchAll, uint/getter/member guard forms, trap-name rejection, direct state reads, member calls ignored, overload multimap, cross-span resolution, paren-balanced if-revert scanner, signature paren stripping) → 13 tests in Section 67 + 20 tests in Section 67b, suite 932/932 |
-| Review of detector 26 (unbounded-loop inflatable-set accounting) | Opus 5.5 | NEEDS WORK, 58 cases (26 correct, 12 FP, 20 FN) + 12 findings F1–F12 → referee calibration R26: 12/12 PROVEN + fixed (widened cap, while/backward/reversed loops + set.length() aliases, conditional break, reader clamp, paren-balanced key parsing + nested mappings + local aliases + helper delegation, msg.sender key, set type prefix, shadowing, D26-specific guard, internal reader + single-file inheritance); F10 rejected (sybil, intentional) → 33 tests in Section 68b, suite 977/977 |
+| Review of detector 26 (unbounded-loop inflatable-set accounting) | Opus 5.5 | NEEDS WORK, 58 cases (26 correct, 12 FP, 20 FN) + 12 findings F1–F12 → referee calibration R26: 11/12 PROVEN + fixed (F10 rejected — sybil, intentional) → 33 tests in Section 68b, suite 977/977 |
 | MiniPerp test (persona check) | — | Steering + persona verified working |
 
 Full detail of each review: `docs/kiro-crew-review-2026-11-*.md`
@@ -92,7 +95,9 @@ Kiro audit passes over real bug-bounty targets (Amply, RAAC, Fulcrom,
 Hyperbridge, Flow, Veno, Resupply, EFP, Somm) are the pipeline's training
 material — Kiro candidates became ground truth for measuring pipeline
 recall (0/7 → 4/7 over the Amply candidates after the commented-out-check,
-commented-out-function, enum-shift, and eth-locked-receive detectors), and
+commented-out-function, enum-shift, and eth-locked-receive detectors;
+the 0/7 baseline is per our internal hunting logs, see
+`docs/hunting-summary.md`), and
 Kiro findings that escaped the pipeline became the next detector backlog
 (the H3, K-1, VENO-C1, VENO-C2 classes — all now caught by the pipeline
 as detectors 18/19, 21, 22, 23).
@@ -100,8 +105,9 @@ as detectors 18/19, 21, 22, 23).
 ## Credits
 
 A Kiroween grant of 4,000 credits (expires 31 Dec 2026). Used up to this
-session: **778.92 credits** (remaining 3,221.08; 37 days) — spent only on
-real work (audit passes + cross-reviews), no junk prompts. Local building
-(scaffold, pipeline, tests, fork PoCs) was done without Kiro passes.
-Tempo since 12 Nov ≈60 credits/day, below the recomputed line
-(3,221.08 ÷ 37 ≈ 87/day).
+session: **799.34 credits** (remaining 3,200.66; 37 days) — spent only on
+real work (audit passes + cross-reviews), no junk prompts. Kiro was used
+as the adversarial review crew and the spec/steering source; implementation
+(scaffold, pipeline, tests, fork PoCs) was done locally. Tempo since
+12 Nov ≈57 credits/day, below the recomputed line
+(3,200.66 ÷ 37 ≈ 86/day).

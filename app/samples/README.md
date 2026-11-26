@@ -14,9 +14,9 @@ Format tiap sampel:
 
 ## Sampel yang direncanakan (M2)
 
-1. **Trap vault** — vault penarikan sederhana dengan 7 bug nyata
-   (reentrancy, 2× missing-access-control, divisi tanpa guard nol,
-   ecrecover tanpa cek nol, tx.origin, unchecked call) + 3 pola aman
+1. **Trap vault** — simple withdrawal vault with 30 planted bugs
+   (reentrancy, 2× missing-access-control, division without zero guard,
+   ecrecover without zero check, tx.origin, unchecked call) + 3 safe patterns
    sebagai negative control (withdrawSafe, sharePriceSafe,
    claimWithSignatureSafe). Ground truth: trap-vault.analysis.json.
    Pipeline M2: 11/11 test lolos (tests/run-m2-tests.js).
