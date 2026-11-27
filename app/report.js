@@ -55,7 +55,7 @@ function renderClosing(result) {
     <p><strong>Top 3 hypotheses:</strong></p>
     <ol>${top || "<li>—</li>"}</ol>
     <p class="disclaimer">The candidates above are NOT a verdict. Final verification
-      (live data + a local PoC) is done by a human referee.</p>
+      (live data + a local PoC) is done by a referee agent (jack).</p>
   </section>`;
 }
 
