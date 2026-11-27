@@ -4,7 +4,9 @@
 > Status: FINAL — v3 public on YouTube 26 Nov 2026 23:37 WIB
 > (https://www.youtube.com/watch?v=AtwaC5bD6XU, 177.03 s). Target duration: ±2:55.
 > Language: English (the Devpost judges), with subtitles if needed.
-> v4 corrections (shots 2/3/5/6) pending owner decision — see the section below.
+> v3 is FINAL (owner decision 27 Nov 2026 — no v4 re-record); known
+> narration errata are listed below and mirrored in the Devpost
+> description's "Video errata (v3)" section.
 
 ## Structure (±175 seconds)
 
@@ -37,9 +39,11 @@
 - Before recording: make sure the public repo URL is live (it is, since
   25 Nov 2026) and capture from the English UI.
 
-## v4 corrections (27 Nov 2026 hostile re-review — PENDING owner decision)
+## v3 narration errata (27 Nov 2026 hostile re-review — v3 kept as final)
 
-The v3 audio still carries the lines below. Re-record these shots for v4:
+The v3 audio still carries the lines below. They are corrected in
+writing in the Devpost description's "Video errata (v3)" section
+instead of a re-record:
 - Shot 2: "Paste a contract address, or upload a Solidity file. The pipeline runs twenty-six pattern detectors plus Slither — here on a curated trap contract with thirty planted bugs." → "Upload a Solidity file — or paste a contract address for a read-only bytecode check. The pipeline runs twenty-six pattern detectors — here on a curated trap contract with thirty expected candidates." (An address only gets an eth_getCode check; Slither is an offline cross-check, not part of the pipeline run.)
 - Shot 3: "(setOwner, Critical)" → "(setOwner, High)" (the app shows High, not Critical).
 - Shot 5: "fork-level proof-of-concept" → "local Foundry proof-of-concept" (the PoCs run locally in Foundry, no chain fork).
