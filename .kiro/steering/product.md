@@ -3,29 +3,32 @@
 ## What FrankenAudit is
 
 FrankenAudit is an open-source smart-contract audit assistant for beginner
-bug bounty hunters. The user pastes a contract address (or uploads a `.sol`
-file), the app runs the analysis pipeline, and the result is a report page
+bug bounty hunters. The user uploads a `.sol` file (a pasted address gets
+a read-only bytecode check only), the app runs the analysis pipeline on
+the uploaded source, and the result is a report page
 of **bug-bounty-formatted finding candidates** — not verdicts. Every
 candidate carries a falsifiable hypothesis, state preconditions, a severity
-guess, and a verification checklist for a human referee.
+guess, and a verification checklist for a referee agent.
 
 ## The stitching ("Frankenstein")
 
-1. **Slither / static analysis** — automated detectors as the first pass
-   (classic patterns: reentrancy, uninitialized state, shadowing, etc).
+1. **Static analysis** — 26 hand-built pattern detectors (classic
+   patterns: reentrancy, uninitialized state, shadowing, etc), plus an
+   offline Slither cross-check.
 2. **Kiro agent crew** — several Kiro agents with a bug-bounty persona
    (see `steering/bug-bounty.md`) read the same code from different angles:
-   accounting, access control, oracle, liquidation. The crew cross-debates
-   (inter-model review) before a candidate is written into the report.
-3. **Read-only on-chain lookup** — reads live deployment state (not just
-   code): asset weights, insurance balances, configuration — to falsify
-   candidates that are alive "in code" but dead "in deployment".
-   No transactions, no wallet.
+   accounting, access control, oracle, liquidation. The crew's detector
+   reviews are cross-checked by a referee agent before any calibration
+   is adopted.
+3. **Read-only on-chain lookup** — checks whether a pasted address is a
+   deployed contract (`eth_getCode`). The referee agent falsifies
+   candidates against live state using that check plus each candidate's
+   verification checklist. No transactions, no wallet.
 
 ## Product principles
 
-- **Candidate, not verdict.** No finding is called "proven" before a fork
-  PoC by a referee.
+- **Candidate, not verdict.** No finding is called "proven" before a local
+  Foundry PoC by a referee.
 - **Hypothesis-first.** Every candidate starts from a hypothesis that can
   be refuted, not from blind pattern matching.
 - **Read-only, always.** No private key, seed, `.env`, or mainnet
