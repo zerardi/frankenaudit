@@ -4,10 +4,10 @@ pragma solidity ^0.8.20;
 import "forge-std/Test.sol";
 import "trapvault/trap-vault.sol";
 
-/// @title PoC fork-lokal TrapVault — rekomendasi Kiro Opus 5.5 (sesi 20:38 WIB 2026-11-13)
+/// @title PoC lokal TrapVault — rekomendasi Kiro Opus 5.5 (sesi 20:38 WIB 2026-11-13)
 /// @notice Satu file test untuk 4 kandidat: #2 setOwner, #7 payFee,
-///         A permit self-mint, B replay signature. Semua jalan di fork
-///         lokal (forge in-process), TANPA mainnet, TANPA wallet nyata.
+///         A permit self-mint, B replay signature. Semua jalan lokal
+///         (forge in-process), TANPA mainnet, TANPA wallet nyata.
 /// @dev Jalankan: cd poc && forge test -vv
 contract TrapVaultPoC is Test {
     TrapVault vault;
