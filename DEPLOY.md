@@ -9,7 +9,7 @@ di UI ke Ethereum / Cronos zkEVM).
 
 > ⛔ **BUTUH PERSETUJUAN TOUFIK DULU** — langkah 1–2 membuat repo **publik**
 > di akun GitHub `zerardi` dan mem-push seluruh source. Sesi ini menyiapkan
-> semuanya lokal; JANGAN push sebelum Toufik bilang "gass" di chat.
+> semuanya lokal; JANGAN push sebelum the owner bilang "gass" di chat.
 
 1. Buat repo publik `zerardi/frankenaudit` di GitHub (tanpa README/.gitignore
    awal — repo lokal sudah berisi semuanya, termasuk `LICENSE` MIT dan
@@ -38,7 +38,7 @@ di UI ke Ethereum / Cronos zkEVM).
 
 - [ ] Repo publik `zerardi/frankenaudit` berisi source + LICENSE MIT + `.kiro/`
 - [ ] URL Pages hidup dan halaman utama termuat (judul "FrankenAudit")
-- [ ] Analisis sampel TrapVault → 12 kandidat tampil di laporan
+- [ ] Analisis sampel TrapVault → 30 kandidat tampil di laporan
 - [ ] Lookup on-chain: alamat kontrak Amply Pool proxy → bytecode terbaca
 - [ ] Tidak ada kunci/API secret di repo (cek `git log --all --oneline`)
 

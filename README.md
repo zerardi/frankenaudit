@@ -25,8 +25,8 @@ The stitching ("Frankenstein"):
 
 ## Principles
 
-- **Candidate, not verdict.** No finding is called "proven" before a fork
-  PoC by a referee.
+- **Candidate, not verdict.** No finding is called "proven" before a local
+  Foundry PoC by a referee.
 - **Hypothesis-first.** Every candidate starts from a hypothesis that can
   be refuted.
 - **Read-only, always.** No private key, seed, `.env`, or mainnet
@@ -63,7 +63,7 @@ frankenaudit/
 ## Status
 
 - M1 scaffold — done 13 Nov 2026
-- M2 MVP pipeline — done: 26 pattern detectors + 30 planted-bug samples,
+- M2 MVP pipeline — done: 26 pattern detectors + 30 expected candidates,
   977/977 tests passing
 - M2.5 Intake & Gate — done: bug-bounty program scoring (0–100) with
   LAYAK / KONFIRMASI / TOLAK gate verdicts
@@ -76,7 +76,7 @@ frankenaudit/
 - Devpost submission deadline: 5 Dec 2026 05:00 WIB (4 Dec 2026 14:00 PT)
 
 This project NEVER submits bug bounty reports — candidates produced while
-testing the product are handed to a human referee for verification (fork PoC).
+testing the product are handed to a human referee for verification (local Foundry PoC).
 
 ## License
 
