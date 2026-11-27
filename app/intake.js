@@ -325,28 +325,28 @@ function gateProgram(raw, mode) {
 // ---------------------------------------------------------------------------
 const SURFACE_ROUTES = {
   "evm-solidity": {
-    detectors: "all-17",
-    note: "pattern-scan 17 detectors + Slither cross-check",
+    detectors: "all-26",
+    note: "pattern-scan 26 detectors + Slither cross-check",
   },
   "defi-lending": {
     detectors: ["oracle-passthrough-no-staleness", "commented-out-check",
       "commented-out-function", "enum-semantic-shift", "missing-access-control",
       "dead-config-storage"],
-    note: "fokus oracle / access-control / config mati",
+    note: "oracle / access-control / dead-config focus",
   },
   "defi-perps": {
     detectors: ["vacuous-identity-check", "dead-config-storage", "share-accounting",
       "missing-access-control", "division-no-guard"],
-    note: "fokus likuidasi / accounting / referral",
+    note: "liquidation / accounting / referral focus",
   },
   "bridge": {
     detectors: ["eth-locked-receive", "tx-origin", "missing-access-control",
       "free-mem-pointer-no-rounding"],
-    note: "fokus ETH terkunci / identitas pemanggil",
+    note: "locked ETH / caller-identity focus",
   },
   "contest": {
-    detectors: "all-17",
-    note: "kontes timed — prioritas Critical, dedupe vs audit terlampir",
+    detectors: "all-26",
+    note: "timed contest — Critical priority, dedupe vs attached audit",
   },
 };
 
@@ -358,13 +358,13 @@ function routeProgram(raw) {
   for (const s of p.surfaces) {
     const r = SURFACE_ROUTES[s];
     if (!r) continue;
-    if (r.detectors === "all-17") sawAll = true;
+    if (r.detectors === "all-26") sawAll = true;
     else for (const d of r.detectors) if (!detectors.includes(d)) detectors.push(d);
     if (r.note && !notes.includes(r.note)) notes.push(r.note);
   }
   return {
     queue: p.queue || ("intake:" + (p.id || "unknown")),
-    detectors: sawAll ? "all-17" : detectors,
+    detectors: sawAll ? "all-26" : detectors,
     baseline: p.baseline || null,
     notes,
   };
@@ -638,7 +638,7 @@ function knownPrograms() {
     },
     {
       // Ditambahkan sesi #50, 21 Nov 2026 — pivot #3 pasca-EFP (keputusan
-      // Toufik 20 Nov 2026). Data TERVERIFIKASI sesi ini: halaman program
+      // the owner 20 Nov 2026). Data TERVERIFIKASI sesi ini: halaman program
       // https://somm.finance/bug-bounty dibaca 21 Nov 2026 (arsip:
       // hidden_files/work/somm/somm-bug-bounty-program-2026-11-21.txt) +
       // repo PeggyJV/cellar-contracts terverifikasi via connector GitHub
@@ -647,7 +647,7 @@ function knownPrograms() {
       // agentic belum terbukti": halaman mengizinkan testnet/simulasi +
       // PoC minimal, tapi tidak menyebut eksplisit pengujian otomatis/
       // agentic. JANGAN hunting Somm sebelum konfirmasi manusia (sesi BB /
-      // Toufik) bahwa fork-lokal/simulasi tercakup izin itu. Skor 75,8.
+      // the owner) bahwa fork-lokal/simulasi tercakup izin itu. Skor 75,8.
       id: "selfhosted:somm",
       name: "Somm Bug Bounty",
       platform: "Self-hosted",

@@ -470,7 +470,7 @@ function detectMissingAccessControl(fn, fileName, id) {
   if (hasAccessGuard(fn)) return [];
   return [normalizeCandidate({
     id, detector: "missing-access-control",
-    title: "Critical function without access control",
+    title: "Function without access control",
     location: { file: fileName, function: fn.name },
     hypothesis: "Function " + fn.name + " writes sensitive state ("
       + (m ? m[0].trim() : "?") + ") without an access modifier and without "
@@ -616,7 +616,7 @@ function detectDivisionNoGuard(fn, fileName, id) {
       preconditions: denom + " can reach 0 (e.g. empty vault / before the first deposit).",
       impact: "DoS on the related function; price/value undefined when the denominator is 0.",
       severityGuess: "Medium",
-      evidence: "Pembagian / " + denom + " in function " + fn.name
+      evidence: "Division / " + denom + " in function " + fn.name
         + " without a zero guard in the function body.",
       toVerify: ["Check whether " + denom + " can genuinely be 0 via any path",
         "Fork PoC: call while " + denom + " == 0"],
@@ -643,7 +643,7 @@ function detectEcrecoverNoZeroCheck(fn, fileName, id) {
     evidence: "ecrecover( in function " + fn.name
       + " without any address(0) occurrence in the function body.",
     toVerify: ["Read the signer comparison in " + fn.name,
-      "PoC fork: kirim signature sampah (v/r/s acak)"],
+      "PoC fork: send a junk signature (random v/r/s)"],
     source: "pattern-scan",
   })];
 }
@@ -680,8 +680,8 @@ function detectUncheckedCall(fn, fileName, id) {
       title: "External call result ignored (unchecked call)",
       location: { file: fileName, function: fn.name },
       hypothesis: "Function " + fn.name + " calls .call without checking "
-        + "return value, lalu melanjutkan seolah transfer berhasil.",
-      preconditions: "Call gagal (mis. penerima revert / gas habis).",
+        + "return value, then continuing as if the transfer succeeded.",
+      preconditions: "The call fails (e.g. recipient reverts / out of gas).",
       impact: "State changes as if the transfer succeeded when it failed — wrong accounting.",
       severityGuess: "Medium",
       evidence: "standalone .call at line " + (fn.startLine + k + 1)
@@ -1269,7 +1269,7 @@ function detectOneHopDispatcher(fns, fileName, startId, flaggedFns) {
             detector: "permissionless-dispatcher",
             title: "Arbitrary-call executor without access control (permissionless dispatcher, one-hop forwarder)",
             location: { file: fileName, function: fn.name },
-            hypothesis: "Function " + fn.name + " meneruskan argumen kendali caller "
+            hypothesis: "Function " + fn.name + " forwards caller-controlled arguments "
               + "ke dispatcher internal " + dName + " (sink: " + d.sink.method
               + " ke `" + d.sink.recv + "` with data `" + d.sink.args.slice(0, 40)
               + "`) — anyone can call " + fn.name + " and executes "
@@ -1277,7 +1277,7 @@ function detectOneHopDispatcher(fns, fileName, startId, flaggedFns) {
             preconditions: "The contract holds funds (ETH/tokens) when this function is called by an attacker; "
               + dName + " has no guard of its own.",
             impact: "Draining of funds stuck in the contract if confirmed "
-              + "(kelas H3 Hyperbridge, varian forwarder).",
+              + "(H3 class, Hyperbridge, forwarder variant).",
             severityGuess: "Medium",
             evidence: "One-hop: `" + fn.name + "` -> `" + dName + "` — positional argument #"
               + (i + 1) + " (`" + args[i].trim().slice(0, 40) + "`) uses a caller parameter and "
@@ -1287,7 +1287,7 @@ function detectOneHopDispatcher(fns, fileName, startId, flaggedFns) {
               + fn.name + ".",
             toVerify: ["Check modifiers & requires in " + fn.name + " and " + dName,
               "check whether this contract really holds user funds temporarily",
-              "PoC fork: panggil " + fn.name + " from a random address with a token transfer to itself"],
+              "PoC fork: call " + fn.name + " from a random address with a token transfer to itself"],
             source: "pattern-scan",
           }));
           n++;
@@ -3134,12 +3134,12 @@ function detectVacuousIdentityCheck(fn, fileName, id) {
     : (tail.match(VIC_MOD_ROLE_RE) || ["?"])[0]);
   const hypothesis = best.cls === "dos"
     ? "Function " + fn.name + " can only be called by an intermediary contract ("
-      + gateText + ") tapi memeriksa `" + best.other + " " + best.op
-      + " msg.sender` (" + best.text + ") di " + best.ctx
-      + " — msg.sender di sini selalu perantara, jadi guard ini SELALU "
+      + gateText + ") but checks `" + best.other + " " + best.op
+      + " msg.sender` (" + best.text + ") in " + best.ctx
+      + " — msg.sender here is always the intermediary, so this guard ALWAYS "
       + "fails and the function never runs (functional DoS), not "
       + "bypass — check whether this function is the only path for "
-      + "aksi itu."
+      + "that action."
     : best.cls === "info"
       ? "Function " + fn.name + " can only be called by an intermediary contract ("
         + gateText + ") and compares msg.sender with `" + best.other
@@ -3148,9 +3148,9 @@ function detectVacuousIdentityCheck(fn, fileName, id) {
         + "Info only, not a bypass."
       : "Function " + fn.name + " can only be called by an intermediary contract ("
         + gateText + ") but compares msg.sender with `" + best.other
-        + "` (" + best.text + ") — msg.sender di sini selalu perantara, "
+        + "` (" + best.text + ") — msg.sender here is always the intermediary, "
         + "never the end-user, so that identity check never "
-        + "catch the intended case (e.g. self-referral passes).";
+        + "catches the intended case (e.g. self-referral passes).";
   return [normalizeCandidate({
     id, detector: "vacuous-identity-check",
     title: best.cls === "dos"
@@ -3172,9 +3172,9 @@ function detectVacuousIdentityCheck(fn, fileName, id) {
           + "does not apply on this path — the rule can be bypassed from a call "
           + "intermediary if confirmed.",
     severityGuess: best.severityGuess,
-    evidence: "Perbandingan msg.sender vs `" + best.other + "` in function "
+    evidence: "Comparison of msg.sender vs `" + best.other + "` in function "
       + fn.name + " that carries an intermediary modifier (" + best.text
-      + "; konteks " + best.ctx + ", kelas " + best.cls + ").",
+      + "; context " + best.ctx + ", class " + best.cls + ").",
     toVerify: ["Read who holds that intermediary role (contract vs EOA) "
       + "and who calls this function",
       "compare with the direct call path (if any) — whether "
@@ -4986,7 +4986,7 @@ function detectJitRewardAccrualSandwich(source, fileName, idStart, opts) {
       toVerify: ["Check the LIVE exit fee value (`" + (fee.var || "fee") + "`) — if 0, Medium severity is confirmed; if nonzero, compute the per-cycle capture vs the fee",
         "check the LIVE accrual schedule (AccrueReward events / bot caller): if rigidly scheduled (e.g. same time daily), the timing attack is practical",
         "check for a minimum stake→unbond delay / minimum stake in code + live (if one exists, this candidate dies)",
-        "hitung capture live: stake / (pool + stake) × reward per accrual vs biaya gas 3 tx (stake + request + unbond)",
+        "compute the live capture: stake / (pool + stake) × reward per accrual vs gas cost of 3 tx (stake + request + unbond)",
         "Fork PoC: stake before accrueReward, requestUnbond after it, compare the payout vs the initial stake; the fee-1% control (fix-flip) must flip the profit into a loss"],
       source: "pattern-scan",
     }));
@@ -5384,7 +5384,7 @@ function detectRefundLockedMiddleware(source, fileName, idStart, opts) {
       title: "Failed-deposit refund locked in the middleware with no exit path",
       location: { file: fileName, function: anchor.name },
       hypothesis: "Function `" + anchor.name + "` (line " + (lineOf(anchor.startIndex) + 1)
-        + ") meneruskan deposit user ke bridge eksternal lewat `" + bridgeCall.obj + "."
+        + ") forwards the user's deposit to the external bridge via `" + bridgeCall.obj + "."
         + bridgeCall.method + "` (line " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1)
         + ") — the bridge records THIS CONTRACT as the deposit sender, not the user."
         + (tokenInflow ? " User tokens are pulled into this contract first (`transferFrom(msg.sender, address(this), ...)`)."
@@ -5396,7 +5396,7 @@ function detectRefundLockedMiddleware(source, fileName, idStart, opts) {
       preconditions: "The L2 deposit fails (user/frontend gas limit or L2 conditions) so the bridge executes the refund path; the live bridge returns the funds to the deposit sender (not the original user).",
       impact: "User principal from a failed deposit is locked permanently in the middleware (ERC20) or stuck at the bridge (ETH without receive/fallback) — conditional loss, no victim until a failed deposit is recorded.",
       severityGuess: severity,
-      evidence: "Panggilan bridge `" + bridgeCall.obj + "." + bridgeCall.method + "` di `"
+      evidence: "Bridge call `" + bridgeCall.obj + "." + bridgeCall.method + "` in `"
         + bridgeFn.name + "` (line " + (lineOf(bridgeFn.startIndex + bridgeCall.index) + 1) + ")"
         + (bridgeCall.libFn ? " via library `" + bridgeCall.libFn + "`" : "")
         + (tokenInflow ? "; inflow token `transferFrom(msg.sender, address(this), ...)`" : "; forward ETH `{value:}`")
@@ -5882,29 +5882,29 @@ function detectVariantBranchNoPayloadConsume(source, fileName, idStart) {
           out.push(normalizeCandidate({
             id: "FA-" + String(idStart + out.length).padStart(3, "0"),
             detector: "variant-branch-no-payload-consume",
-            title: "Cabang varian " + condLabel
+            title: "Variant branch " + condLabel
               + " does not consume the payload — offset desync for the next item",
             location: { file: fileName, function: fn.name },
-            hypothesis: "Di `" + fn.name + "` (line " + lineNo + "), the loop reads items"
+            hypothesis: "In `" + fn.name + "` (line " + lineNo + "), the loop reads items"
               + " item by item from cursor `" + (cursor || "(state-based)") + "` and dispatches based on `"
-              + tagVar + "`; cabang " + condLabel
+              + tagVar + "`; branch " + condLabel
               + " only sets a flag without reading any payload from the cursor,"
               + " while another branch consumes the payload (" + consumerConds + ")."
               + " The cursor does not advance in this branch, so the next item is parsed "
               + " from the wrong position (offset desync) — this branch's payload field "
               + " (e.g. `other`) is never filled and the item after it can "
-              + " decoded as a fake tag/field.",
+              + " be decoded as a fake tag/field.",
             preconditions: "There is an opaque variant item (Other/Unknown/Custom/...) that "
               + " actually appears in the stream with a length-prefixed payload "
               + " after its tag; the loop continues to the next item (not "
               + " last item / not the only variant in use).",
             impact: "Header/stream parsing desync: the digest/item after the variant "
-              + " opaque ter-decode salah — worst-case liveness (revert / root"
+              + " opaque is mis-decoded — worst-case liveness (revert / root"
               + " garbage is rejected downstream) if the stream must be genuinely "
               + " finalized; not a direct fund-loss — severity Info.",
             severityGuess: "Info",
-            evidence: "Cabang " + condLabel
-              + " di `" + fn.name + "` (line " + lineNo + ") without any "
+            evidence: "Branch " + condLabel
+              + " in `" + fn.name + "` (line " + lineNo + ") without any "
               + " read/decode/skip calls over cursor `" + (cursor || "(state-based)") + "`;"
               + " another branch in the same chain consumes the payload ("
               + consumerConds + ").",
@@ -6329,7 +6329,7 @@ function detectGuardAsymmetryNavReaders(source, fileName, idStart) {
           preconditions: "There is a call path to `" + fn.name + "` while the reentrancy lock is active"
             + " (hooked-token callback, flash-loan callback, adaptor hook, or cross-contract reader"
             + " such as an adaptor balanceOf) — without that path this read is only latent.",
-          impact: "Low — stale NAV read cross-contract can move deposit/withdraw decisions/"
+          impact: "Stale NAV read cross-contract can move deposit/withdraw decisions/"
             + "another contract's redeem; needs a permissionless callback path to become fund-loss — currently "
             + " latent/hardening, not a submission candidate.",
           severityGuess: "Low",
@@ -7092,32 +7092,32 @@ function detectUnboundedLoopInflatableSet(source, fileName, idStart) {
         location: { file: fileName, function: r.fn.name },
         hypothesis: "`" + r.fn.name + "` (line " + rLine + rSpanNote + ") loops over the ENTIRE contents of set `" + v.name
           + "` without a cap/pagination"
-          + (r.via ? " lewat helper internal `" + r.via + "`" : "")
-          + ", sementara `" + g.fn.name + "` (line " + gLine + gSpanNote + ") adds an entry to that set"
+          + (r.via ? " via internal helper `" + r.via + "`" : "")
+          + ", while `" + g.fn.name + "` (line " + gLine + gSpanNote + ") adds an entry to that set"
           + " WITHOUT access control with a caller-chosen key"
           + (g.keyParam ? " (parameter `" + g.keyParam + "`)" : "")
-          + (g.via ? " lewat helper internal `" + g.via + "`" : "")
+          + (g.via ? " via internal helper `" + g.via + "`" : "")
           + " — anyone can inflate the victim's set until the read "
           + " this accounting runs out of gas (OutOfGas) and every flow that reads it reverts.",
-        preconditions: "Pembaca `" + r.fn.name + "` reachable from the accounting path (totalAssets/balanceOf "
+        preconditions: "Reader `" + r.fn.name + "` reachable from the accounting path (totalAssets/balanceOf "
           + " or similar) and the grower `" + g.fn.name + "` can still be called by anyone"
           + " (no guard in another contract / no entry-count cap outside this file).",
-        impact: "Medium — DoS on the accounting view: deposit/withdraw/redeem and every check "
+        impact: "DoS on the accounting view: deposit/withdraw/redeem and every check "
           + " totalAssets before/after that call this reader also revert; the position's funds "
-          + " beku sampai intervensi governance (force-out). Biaya serang = minimum deposit ×"
+          + " frozen until governance intervenes (force-out). Attack cost = minimum deposit ×"
           + " entry count + gas (real example, Somm: ±3,121 entries brick totalAssets).",
         severityGuess: "Medium",
         evidence: "Grower `" + g.fn.name + "` (line " + gLine + gSpanNote + ") without access control adds `"
           + v.name + "`" + (g.keyParam ? " with the parameter key `" + g.keyParam + "`" : "")
-          + (g.via ? " lewat helper internal `" + g.via + "`" : "")
+          + (g.via ? " via internal helper `" + g.via + "`" : "")
           + "; reader `" + r.fn.name + "` (line " + rLine + rSpanNote + ") loops over the full length of that set"
-          + (r.via ? " lewat helper internal `" + r.via + "`" : "")
+          + (r.via ? " via internal helper `" + r.via + "`" : "")
           + " without an unconditional `break`/pagination; set declaration line " + (v.declLine + 1) + ".",
         toVerify: ["Check the call chain: does `" + r.fn.name + "` is read from totalAssets/balanceOf (the accounting path) — if only read directly by users, the impact is self-DoS",
           "Check the bloat cost per entry (minimum deposit + grower gas) and the brick threshold (gas/entry × block gas limit)",
           "Check for an entry-count cap / pagination in other contracts or in the deployed version",
           "Check the post-brick recovery path (force-out / governance) and whether funds can exit without this reader",
-          "PoC fork: bloat set sampai ambang lalu panggil `" + r.fn.name + "` + totalAssets with the block gas limit — must revert OutOfGas"],
+          "PoC fork: bloat the set to the threshold, then call `" + r.fn.name + "` + totalAssets with the block gas limit — must revert OutOfGas"],
         source: "pattern-scan",
       }));
     }
@@ -7140,8 +7140,8 @@ function detectDeadConfigStorage(source, fileName, idStart) {
       detector: "dead-config-storage",
       title: "Dead config: `" + d.name + "` written but never read",
       location: { file: fileName, function: d.firstWriter.fn || contractName },
-      hypothesis: "State var `" + d.name + "` (declaration line " + (d.declLine + 1) + ") ditulis "
-        + d.writes.length + "× di " + writerList + " but is NEVER read in this file"
+      hypothesis: "State var `" + d.name + "` (declaration line " + (d.declLine + 1) + ") written "
+        + d.writes.length + "× in " + writerList + " but is NEVER read in this file"
         + (d.noops > 0 ? " (plus " + d.noops + "× statement no-op `" + d.name + ";` — mentioned but not used)" : "")
         + " — config set by governance changes no contract behavior at all.",
       preconditions: "The setter/initialize is still callable (governance active) and no reader in another file was missed.",
@@ -7299,7 +7299,7 @@ function detectEthLockedReceive(source, fileName, idStart) {
         + "selfdestruct, safeTransferETH, {value:}) — ETH entering via "
         + kind + "() has no exit path in this file.",
       preconditions: "There is no ETH rescue path in another contract/proxy "
-        + "(mis. gateway WETH / admin rescue terpisah).",
+        + "(e.g. WETH gateway / separate admin rescue).",
       impact: severity + " — ETH sent "
         + (severity === "Low"
           ? "(enters via the normal protocol flow: IWETH.withdraw / refund to address(this)) "
@@ -8929,7 +8929,7 @@ function runPipeline(source, fileName, opts) {
     baseline: baselineInfo,
     mappedAreas: [
       "reentrancy call-before-update",
-      "critical function without access control",
+      "function without access control",
       "division without a zero guard",
       "ecrecover without an address(0) check",
       "tx.origin for authorization",
