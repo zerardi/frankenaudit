@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title TrapVault — kontrak SAMPEL TERKURASI untuk FrankenAudit (M2)
-/// @notice Sengaja berisi bug nyata + pola aman (negative control).
-///         Dipakai untuk demo juri & pengujian pipeline. JANGAN deploy
-///         ke mainnet, JANGAN dipakai sebagai referensi kode aman.
-/// @dev Ground truth: trap-vault.analysis.json (30 kandidat diharapkan,
-///      23 negative control yang TIDAK boleh memicu kandidat).
+/// @title TrapVault — curated SAMPLE contract for FrankenAudit (M2)
+/// @notice Deliberately contains real bugs + safe patterns (negative controls).
+///         Used for the judges' demo & pipeline testing. DO NOT deploy
+///         to mainnet, DO NOT use as a reference for safe code.
+/// @dev Ground truth: trap-vault.analysis.json (30 expected candidates,
+///      26 negative controls that must NOT trigger a candidate).
+///      BUG numbers 12-16 are unassigned (numbering gap from development);
+///      22 BUG markers yield 30 expected candidates.
 /// @notice Interface minimal feed harga (Chainlink-style) + oracle getter
 ///         (Aave-style) — dipakai fixture detektor oracle-passthrough.
 interface IPriceFeed {

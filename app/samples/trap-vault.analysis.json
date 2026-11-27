@@ -5,181 +5,181 @@
    "detector": "reentrancy-call-before-update",
    "function": "withdraw",
    "severityGuess": "High",
-   "why": "msg.sender.call{value} di baris 41, balances[msg.sender] -= amount baru di baris 43 — kontrak penerima bisa re-enter sebelum saldo berkurang."
+   "why": "msg.sender.call{value} at line 41, balances[msg.sender] -= amount only at line 43 — the receiving contract can re-enter before the balance decreases."
   },
   {
    "detector": "missing-access-control",
    "function": "setOwner",
    "severityGuess": "High",
-   "why": "Menulis state sensitif owner tanpa modifier onlyOwner dan tanpa require(msg.sender == owner) — siapa pun bisa merebut kepemilikan."
+   "why": "Writes sensitive state owner with no onlyOwner modifier and no require(msg.sender == owner) — anyone can seize ownership."
   },
   {
    "detector": "division-no-guard",
    "function": "sharePrice",
    "severityGuess": "Medium",
-   "why": "address(this).balance / totalShares tanpa require(totalShares > 0) — revert saat vault kosong, harga share tidak terdefinisi."
+   "why": "address(this).balance / totalShares with no require(totalShares > 0) — reverts when the vault is empty, share price undefined."
   },
   {
    "detector": "ecrecover-no-zero-check",
    "function": "claimWithSignature",
    "severityGuess": "Medium",
-   "why": "Hasil ecrecover dipakai tanpa cek signer != address(0) — signature invalid menghasilkan address(0)."
+   "why": "The ecrecover result is used with no check that signer != address(0) — an invalid signature yields address(0)."
   },
   {
    "detector": "tx-origin-auth",
    "function": "emergencyDrain",
    "severityGuess": "High",
-   "why": "require(tx.origin == owner) — otorisasi lewat tx.origin, bisa dipancing lewat kontrak perantara/phishing."
+   "why": "require(tx.origin == owner) — authorization via tx.origin, can be lured through an intermediary contract / phishing."
   },
   {
    "detector": "unchecked-call",
    "function": "payFee",
    "severityGuess": "Medium",
-   "why": "to.call{value: amount}(\"\") hasilnya diabaikan, lalu feeBps di-nol-kan seolah transfer berhasil."
+   "why": "to.call{value: amount}(\"\") result ignored, then feeBps zeroed as if the transfer succeeded."
   },
   {
    "detector": "missing-access-control",
    "function": "payFee",
    "severityGuess": "High",
-   "why": "Menulis state sensitif feeBps + mengirim ETH ke alamat arbitrer tanpa modifier/require akses — siapa pun bisa memanggilnya."
+   "why": "Writes sensitive state feeBps + sends ETH to an arbitrary address with no modifier / access require — anyone can call it."
   },
   {
    "detector": "replay-signature",
    "function": "claimWithSignature",
    "severityGuess": "High",
-   "why": "Digest hanya (msg.sender, amount) tanpa nonce/chainId/address(this) — satu signature sah owner bisa dipakai ulang tanpa batas (temuan Kiro B)."
+   "why": "Digest is only (msg.sender, amount) with no nonce / chainId / address(this) — one valid owner signature can be reused without limit (Kiro finding B)."
   },
   {
    "detector": "replay-signature",
    "function": "claimWithSignatureSafe",
    "severityGuess": "High",
-   "why": "Cek zero-signer memperbaiki bug 4, tapi digest tetap tanpa nonce — replay tetap bisa (temuan Kiro B)."
+   "why": "The zero-signer check fixes bug 4, but the digest still has no nonce — replay still works (Kiro finding B)."
   },
   {
    "detector": "replay-signature",
    "function": "permitRegexControl",
    "severityGuess": "High",
-   "why": "Digest (owner, spender, value, deadline) tanpa nonce/chainId — signature self-signed bisa di-replay; plus mint arbitrer (temuan Kiro A/B)."
+   "why": "Digest (owner, spender, value, deadline) with no nonce / chainId — a self-signed signature can be replayed; plus arbitrary mint (Kiro findings A/B)."
   },
   {
    "detector": "share-accounting",
    "function": "withdraw",
    "severityGuess": "Low",
-   "why": "balances dikurangi, tapi shares/totalShares tidak — akuntansi share tidak sinkron (temuan Kiro C)."
+   "why": "balances decreased, but shares / totalShares not — share accounting out of sync (Kiro finding C)."
   },
   {
    "detector": "share-accounting",
    "function": "withdrawSafe",
    "severityGuess": "Low",
-   "why": "CEI benar, tapi shares/totalShares tetap tidak dikurangi saat penarikan (temuan Kiro C)."
+   "why": "CEI is correct, but shares / totalShares still not decreased on withdrawal (Kiro finding C)."
   },
   {
    "detector": "commented-out-check",
    "function": "drainCommentedCheck",
    "severityGuess": "Medium",
-   "why": "require(balances[msg.sender] >= amount) dikomentari di dalam fungsi — cek saldo dimatikan, penarikan tanpa saldo lolos dari validasi (kelas AMP-01 Amply)."
+   "why": "require(balances[msg.sender] >= amount) commented out inside the function — the balance check is disabled, withdrawal without balance passes validation (AMP-01 class, Amply)."
   },
   {
    "detector": "commented-out-function",
    "function": "setFeePaused",
    "severityGuess": "Medium",
-   "why": "Fungsi setFeePaused dikomentari utuh — tidak ada jalur yang bisa mengubah feeBps (kelas AMP-02 Amply, setDebtCeiling dikomentari utuh)."
+   "why": "Function setFeePaused commented out in full — no path can change feeBps (AMP-02 class, Amply, setDebtCeiling commented out in full)."
   },
   {
    "detector": "oracle-passthrough-no-staleness",
    "function": "getVaultPrice",
    "severityGuess": "Low",
-   "why": "latestAnswer() dipakai apa adanya; hanya cek price > 0 (bukan staleness) — bila feed macet, harga basi tetap dipakai (kelas AMP-06 Amply; bentuk persis AaveOracle upstream)."
+   "why": "latestAnswer() used as-is; only a price > 0 check (not staleness) — if the feed stalls, the stale price is still used (AMP-06 class, Amply; exact AaveOracle upstream shape)."
   },
   {
    "detector": "oracle-passthrough-no-staleness",
    "function": "collateralValue",
    "severityGuess": "Low",
-   "why": "IPriceOracleGetter.getAssetPrice dipakai langsung untuk valuasi agunan tanpa cek umur harga (bentuk AMP-06 di sisi konsumen — ValidationLogic.validateBorrow Amply)."
+   "why": "IPriceOracleGetter.getAssetPrice used directly for collateral valuation with no check on price age (AMP-06 shape on the consumer side — Amply ValidationLogic.validateBorrow)."
   },
   {
    "detector": "vacuous-identity-check",
    "function": "setTraderReferralCode",
    "severityGuess": "Medium",
-   "why": "onlyHandler (pemanggil = router, bukan trader) tapi memeriksa `affiliate == msg.sender` seolah msg.sender adalah trader — cek vacuous, self-referral lolos (kelas FUL-REF-01 Fulcrom ReferralManager, sesi BB sore 15 Nov 2026)."
+   "why": "onlyHandler (caller = router, not trader) but checks `affiliate == msg.sender` as if msg.sender were the trader — vacuous check, self-referral passes (FUL-REF-01 class, Fulcrom ReferralManager, BB afternoon session 15 Nov 2026)."
   },
   {
    "detector": "dead-config-storage",
    "function": "payFee",
    "severityGuess": "Low",
-   "why": "feeBps ditulis di payFee (feeBps = 0) + setFeeCommentProse (feeBps = bps) tapi tidak pernah dibaca — vault tidak pernah memakai fee; dead config yang sudah ada di fixture sejak awal, baru tertangkap detektor ke-17."
+   "why": "feeBps written in payFee (feeBps = 0) + setFeeCommentProse (feeBps = bps) but never read — the vault never uses the fee; dead config present in the fixture from the start, only caught by detector 17."
   },
   {
    "detector": "dead-config-storage",
    "function": "setDeadSwitch",
    "severityGuess": "Low",
-   "why": "configDead ditulis di setter tapi tidak pernah dibaca — governance mengira config berlaku padahal tidak ada logika yang memakainya (kelas R-02 Fulcrom VaultPriceFeedV2 favorPrimaryPrice, sesi BB sore 15 Nov 2026)."
+   "why": "configDead written in the setter but never read — governance thinks the config applies, but no logic uses it (R-02 class, Fulcrom VaultPriceFeedV2 favorPrimaryPrice, BB afternoon session 15 Nov 2026)."
   },
   {
    "detector": "dead-config-storage",
    "function": "setDeadThreshold",
    "severityGuess": "Low",
-   "why": "thresholdDead ditulis di setter tapi tidak pernah dibaca — bentuk kedua kelas R-02 (Fulcrom spreadThresholdBasisPoints)."
+   "why": "thresholdDead written in the setter but never read — second R-02 shape (Fulcrom spreadThresholdBasisPoints)."
   },
   {
    "detector": "permissionless-dispatcher",
    "function": "dispatch",
    "severityGuess": "Medium",
-   "why": "dispatch(bytes) external tanpa guard mengeksekusi to.call{value: call.value}(call.data) dengan target+data dari calldata yang di-decode — kelas H3 Hyperbridge CallDispatcher.dispatch (sesi BB sore 17 Nov 2026, wasit Medium, PoC-verified Foundry 4/4)."
+   "why": "dispatch(bytes) external with no guard executes to.call{value: call.value}(call.data) with target+data decoded from calldata — H3 class, Hyperbridge CallDispatcher.dispatch (BB afternoon session 17 Nov 2026, referee Medium, Foundry PoC-verified 4/4)."
   },
   {
    "detector": "full-balance-sweep",
    "function": "sweepEscrow",
    "severityGuess": "Low",
-   "why": "uint256 balance = IERC20(token).balanceOf(dispatcher) lalu transfer(address(this), balance) — sweep sebesar saldo penuh kontrak perantara, bukan jumlah deklarasi — kelas H3b Hyperbridge IntentGatewayV2.placeOrder (sesi BB sore 17 Nov 2026, wasit Low)."
+   "why": "uint256 balance = IERC20(token).balanceOf(dispatcher) then transfer(address(this), balance) — sweep of the intermediary contract's full balance, not the declared amount — H3b class, Hyperbridge IntentGatewayV2.placeOrder (BB afternoon session 17 Nov 2026, referee Low)."
   },
   {
    "detector": "permissionless-value-send",
    "function": "drainValue",
    "severityGuess": "Medium",
-   "why": "drainValue(to, amount) external tanpa guard: (bool ok,) = to.call{value: amount}(\"\") dengan return dicek — lolos unchecked-call (return ditangkap) dan permissionless-dispatcher (data kosong); kelas F8 review Kiro 17 Nov 2026."
+   "why": "drainValue(to, amount) external with no guard: (bool ok,) = to.call{value: amount}(\"\") with the return checked — escapes unchecked-call (return captured) and permissionless-dispatcher (empty data); F8 class, Kiro review 17 Nov 2026."
   },
   {
    "detector": "permissionless-value-send",
    "function": "payFee",
    "severityGuess": "Medium",
-   "why": "payFee(to, amount) external tanpa guard: to.call{value: amount}(\"\") ke alamat pilihan caller — drain ETH yang sama seperti BUG 21 (sudah ter-flag missing-access-control + unchecked-call)."
+   "why": "payFee(to, amount) external with no guard: to.call{value: amount}(\"\") to a caller-chosen address — same ETH drain as BUG 21 (already flagged missing-access-control + unchecked-call)."
   },
   {
    "detector": "empty-sublist-proof-advances-height",
    "function": "verifyParachainHeaders",
    "severityGuess": "Low",
-   "why": "if (len > 0) melewatkan verifyProof bila parachains kosong, state.latestHeight tetap dimajukan di verify(), proof jujur blok sama ditolak stale-check — kelas K-1 Hyperbridge EcdsaBeefy (sensor satu interval, liveness)."
+   "why": "if (len > 0) skips verifyProof when parachains is empty, state.latestHeight still advances in verify(), honest proofs for the same block are rejected by the stale check — K-1 class, Hyperbridge EcdsaBeefy (censors one interval, liveness)."
   },
   {
    "detector": "jit-reward-accrual-sandwich",
    "function": "accrueReward",
    "severityGuess": "Medium",
-   "why": "accrueReward menambah totalPooledEth tanpa mint share, stake mint pada rate pra-accrual, requestUnbond mengunci rate pasca-accrual lalu membakar share; unbondingFee default 0 — kelas VENO-C2 YbEth (sesi BB pagi 19 Nov 2026, Medium wasit, PoC-verified Foundry 4/4)."
+   "why": "accrueReward adds to totalPooledEth without minting shares, stake mints at the pre-accrual rate, requestUnbond locks the post-accrual rate then burns shares; unbondingFee default 0 — VENO-C2 class, YbEth (BB morning session 19 Nov 2026, referee Medium, Foundry PoC-verified 4/4). Status: GUGUR — hostile review 19 Nov 2026 (out of scope, dilution exclusion); will not be submitted."
   },
   {
    "detector": "refund-locked-middleware",
    "function": "bridge",
    "severityGuess": "Medium",
-   "why": "bridge() meneruskan deposit ERC20 user ke bridgehub.requestL2TransactionTwoBridges (kontrak tercatat deposit sender); withdraw yang ada hanya base token (via lookup) + ETH ke treasury, tanpa rescue ERC20 arbitrer, tanpa receive()/fallback() — kelas VENO-C1 BridgeMiddleware zkCRO (sesi BB pagi 19 Nov 2026, KANDIDAT laten, mock PoC 5/5 PASS)."
+   "why": "bridge() forwards the user's ERC20 deposit to bridgehub.requestL2TransactionTwoBridges (contract recorded as deposit sender); existing withdraws cover only the base token (via lookup) + ETH to treasury, with no arbitrary ERC20 rescue and no receive()/fallback() — VENO-C1 class, BridgeMiddleware zkCRO (BB morning session 19 Nov 2026, latent candidate, mock PoC 5/5 PASS; 0 victims, never submitted)."
   },
   {
    "detector": "variant-branch-no-payload-consume",
    "function": "decodeHeader",
    "severityGuess": "Info",
-   "why": "Cabang ITEM_OTHER di decodeHeader hanya menandai flag tanpa membaca payload Vec<u8> dari slice, sementara cabang CONSENSUS/SEAL membaca payload via decodeItem(slice) — offset desync untuk item berikutnya; field other tak pernah terisi — kelas L-1 Hyperbridge Codec.DecodeHeader (sesi BB pagi 20 Nov 2026, Info/design, BUKAN kandidat submit — header harus genuinely finalized)."
+   "why": "The ITEM_OTHER branch in decodeHeader only sets a flag without reading the Vec<u8> payload from the slice, while the CONSENSUS/SEAL branches read the payload via decodeItem(slice) — offset desync for the next item; the other field is never filled — L-1 class, Hyperbridge Codec.DecodeHeader (BB morning session 20 Nov 2026, Info/design, NOT a submission candidate — the header must be genuinely finalized)."
   },
   {
    "detector": "guard-asymmetry-nav-readers",
    "function": "previewRedeem",
    "severityGuess": "Low",
-   "why": "NavGuardTrap.previewRedeem membaca NAV lewat _nav() tanpa cek locked, sementara totalAssets() ber-guard require(!locked) — kelas H-SOMM-12 Somm Cellar (latent/hardening)."
+   "why": "NavGuardTrap.previewRedeem reads NAV via _nav() with no locked check, while totalAssets() guards with require(!locked) — H-SOMM-12 class, Somm Cellar (latent/hardening)."
   },
   {
    "detector": "unbounded-loop-inflatable-set-accounting",
    "function": "vestedBalanceOf",
    "severityGuess": "Medium",
-   "why": "VestingBloatTrap.vestedBalanceOf me-loop seluruh allUserDepositIds[user].values() tanpa batas, sementara deposit() public tanpa guard menambah set itu dengan receiver bebas — kelas H-SOMM-19 Somm VestingSimple (PoC fork: brick totalAssets pada ±3.121 entri)."
+   "why": "VestingBloatTrap.vestedBalanceOf loops over all of allUserDepositIds[user].values() without a bound, while public deposit() with no guard adds to that set with a free receiver — H-SOMM-19 class, Somm VestingSimple (fork PoC: totalAssets bricks at ±3,121 entries)."
   }
  ],
  "expectedTotal": 30,
@@ -188,134 +188,134 @@
   {
    "function": "withdrawSafe",
    "pattern": "reentrancy-call-before-update",
-   "why": "Checks-effects-interactions benar: balances dikurangi SEBELUM external call."
+   "why": "Checks-effects-interactions correct: balances decreased BEFORE the external call."
   },
   {
    "function": "sharePriceSafe",
    "pattern": "division-no-guard",
-   "why": "require(totalShares > 0) sebelum pembagian."
+   "why": "require(totalShares > 0) before the division."
   },
   {
    "function": "claimWithSignatureSafe",
    "pattern": "ecrecover-no-zero-check",
-   "why": "require(signer != address(0)) sebelum signer dipakai."
+   "why": "require(signer != address(0)) before the signer is used."
   },
   {
    "function": "permitRegexControl",
    "pattern": "missing-access-control",
-   "why": "KONTROL REGRESI SAJA, bukan pola aman: owner adalah parameter + perbandingan ==, bukan penulisan state (regresi AToken.permit Amply 2026-11-13). Fungsi ini sendiri TIDAK aman — self-signed mint tanpa nonce (temuan Kiro Opus 5.5, Critical)."
+   "why": "REGRESSION CONTROL ONLY, not a safe pattern: owner is a parameter + == comparison, not a state write (AToken.permit regression, Amply 2026-11-13). This function itself is NOT safe — self-signed mint without nonce (Kiro Opus 5.5 finding, Critical)."
   },
   {
    "function": "claimWithNonceSafe",
    "pattern": "replay-signature",
-   "why": "Digest mengikat nonce sekali-pakai + chainId + address(this); nonce ditandai terpakai."
+   "why": "Digest binds a single-use nonce + chainId + address(this); the nonce is marked used."
   },
   {
    "function": "claimWithNonceSafe",
    "pattern": "ecrecover-no-zero-check",
-   "why": "require(signer != address(0)) sebelum signer dipakai."
+   "why": "require(signer != address(0)) before the signer is used."
   },
   {
    "function": "withdrawFull",
    "pattern": "share-accounting",
-   "why": "Mengurangi balances + shares + totalShares sebelum external call."
+   "why": "Decreases balances + shares + totalShares before the external call."
   },
   {
    "function": "withdrawFull",
    "pattern": "reentrancy-call-before-update",
-   "why": "Checks-effects-interactions benar: semua state dikurangi SEBELUM external call."
+   "why": "Checks-effects-interactions correct: all state decreased BEFORE the external call."
   },
   {
    "function": "setFeeCommentProse",
    "pattern": "commented-out-check",
-   "why": "Komentar prosa menyebut 'require' tanpa kurung + baris kode non-check yang dikomentari — bukan cek yang dimatikan."
+   "why": "Prose comment mentions 'require' without parentheses + commented-out non-check code lines — not a disabled check."
   },
   {
    "function": "setFeeActive",
    "pattern": "commented-out-function",
-   "why": "Komentar prosa yang menyebut signature (lihat function setFeeActive(uint256) untuk ...) — bukan definisi fungsi yang dikomentari."
+   "why": "Prose comment that mentions a signature (see function setFeeActive(uint256) for ...) — not a commented-out function definition."
   },
   {
    "function": "getVaultPriceSafe",
    "pattern": "oracle-passthrough-no-staleness",
-   "why": "require(block.timestamp - updatedAt < 3600) sebelum harga dipakai — umur data dicek."
+   "why": "require(block.timestamp - updatedAt < 3600) before the price is used — data age is checked."
   },
   {
    "function": "setTraderReferralCodeByUser",
    "pattern": "vacuous-identity-check",
-   "why": "Jalur pemanggilan langsung oleh trader — cek `affiliate != msg.sender` bermakna karena msg.sender memang trader (bentuk Fulcrom ReferralManager.setTraderReferralCodeByUser)."
+   "why": "Direct call path by the trader — the `affiliate != msg.sender` check is meaningful because msg.sender really is the trader (Fulcrom ReferralManager.setTraderReferralCodeByUser shape)."
   },
   {
    "function": "setLiveCounter",
    "pattern": "dead-config-storage",
-   "why": "liveCounter ditulis di setter DAN dibaca di getLiveCounter — config hidup, bukan dead config."
+   "why": "liveCounter is written in the setter AND read in getLiveCounter — live config, not dead config."
   },
   {
    "function": "dispatchGuarded",
    "pattern": "permissionless-dispatcher",
-   "why": "Dispatcher yang sama tapi ber-modifier onlyHandler — hanya gateway yang boleh memanggil."
+   "why": "Same dispatcher but with the onlyHandler modifier — only the gateway may call it."
   },
   {
    "function": "payFee",
    "pattern": "permissionless-dispatcher",
-   "why": "to.call{value: amount}(\"\") — data kosong, hanya kirim ETH, bukan arbitrary call (cakupan v1 detektor)."
+   "why": "to.call{value: amount}(\"\") — empty data, only sends ETH, not an arbitrary call (v1 detector scope)."
   },
   {
    "function": "sweepDeclared",
    "pattern": "full-balance-sweep",
-   "why": "Transfer memakai jumlah yang dideklarasikan (parameter amount), bukan saldo penuh perantara."
+   "why": "Transfer uses the declared amount (amount parameter), not the intermediary's full balance."
   },
   {
    "function": "rescueOwnBalance",
    "pattern": "full-balance-sweep",
-   "why": "Sweep saldo SENDIRI (balanceOf(address(this))) ke owner — rescue by-design, dikecualikan."
+   "why": "Sweeps its OWN balance (balanceOf(address(this))) to the owner — rescue by design, excluded."
   },
   {
    "function": "withdrawSelf",
    "pattern": "permissionless-value-send",
-   "why": "Kirim ETH ke msg.sender sendiri (withdraw) — penerima dikecualikan."
+   "why": "Sends ETH to msg.sender itself (withdraw) — recipient excluded."
   },
   {
    "function": "withdrawToOwner",
    "pattern": "permissionless-value-send",
-   "why": "Kirim ETH ke owner (payout sah) — penerima dikecualikan."
+   "why": "Sends ETH to the owner (legitimate payout) — recipient excluded."
   },
   {
    "function": "payToken",
    "pattern": "permissionless-value-send",
-   "why": "Transfer TOKEN dua argumen (to, amount) — bukan kirim ETH satu argumen."
+   "why": "TOKEN transfer with two arguments (to, amount) — not a single-argument ETH send."
   },
   {
    "function": "dispatch",
    "pattern": "permissionless-value-send",
-   "why": "dispatch punya data arbitrer (call.data) — ranah permissionless-dispatcher, bukan value-send."
+   "why": "dispatch has arbitrary data (call.data) — permissionless-dispatcher territory, not value-send."
   },
   {
    "function": "requestUnbond",
    "pattern": "jit-reward-accrual-sandwich",
-   "why": "Kandidat D22 dijangkarkan di fungsi accrual (accrueReward), bukan di fungsi exit — exit sendiri bukan kandidat terpisah."
+   "why": "D22 candidate anchored at the accrual function (accrueReward), not at the exit function — the exit itself is not a separate candidate."
   },
   {
    "function": "unbond",
    "pattern": "permissionless-value-send",
-   "why": "Payout ke msg.sender sendiri (withdraw) — penerima dikecualikan D20."
+   "why": "Payout to msg.sender itself (withdraw) — recipient excluded by D20."
   },
   {
    "function": "decodeHeaderSafe",
    "pattern": "variant-branch-no-payload-consume",
-   "why": "Semua cabang mengonsumsi payload — cabang Other membaca payload-nya (readByte + readBytes) — D24 diam."
+   "why": "All branches consume the payload — the Other branch reads its payload (readByte + readBytes) — D24 silent."
   },
   {
    "function": "decodeHeaderUnit",
    "pattern": "variant-branch-no-payload-consume",
-   "why": "Cabang non-konsumsi satu-satunya adalah varian unit ITEM_UNIT (tanpa payload di wire format) — D24 diam."
+   "why": "The only non-consuming branch is the unit variant ITEM_UNIT (no payload in the wire format) — D24 silent."
   },
   {
    "function": "totalAssets",
    "pattern": "guard-asymmetry-nav-readers",
-   "why": "NavGuardTrap.totalAssets ber-guard require(!locked) — saudara ber-guard, bukan kandidat."
+   "why": "NavGuardTrap.totalAssets guards with require(!locked) — guarded sibling, not a candidate."
   }
  ],
- "note": "Ground truth manusia untuk pengujian pipeline M2. Kandidat di sini adalah yang DIHARAPKAN dari pipeline (detector, fungsi). Severity = tebakan awal, bukan verdict — verdict butuh PoC fork oleh wasit.",
+ "note": "Human ground truth for testing the M2 pipeline. Candidates here are the ones EXPECTED from the pipeline (detector, function). Severity = initial guess, not a verdict — a verdict needs a fork PoC by the referee.",
  "sample": "TrapVault"
 }
