@@ -4,14 +4,14 @@
 > 1298511 (M5). Status: FINAL (27 Nov 2026, corrected after the hostile
 > re-review and re-check) — Devpost draft 1298511 was re-filled with
 > this version on 27 Nov 2026.
-> Credit figures as of 27 Nov 2026 15:30 WIB: used 854.12 / 4,000
-> (remaining 3,145.88; 35 days).
+> Credit figures as of 27 Nov 2026 16:23 WIB: used 855.15 / 4,000
+> (remaining 3,144.85; 35 days).
 
 ## Steering (`.kiro/steering/`)
 
 - **`bug-bounty.md`** — the bug-bounty hunter persona defined in the repo for Kiro:
   candidate-not-verdict, falsifiable hypotheses, a severity gate of
-  Medium and up, a fork PoC before any claim, no submission without human
+  Medium and up, a PoC before any claim, no submission without human
   approval. This is the same "brain" our daily audit sessions use, brought
   into the project as repo steering.
 - **`product.md`** — what FrankenAudit is, who its users are, the
@@ -69,6 +69,7 @@ recorded every session).
 | Hostile review of the final submission package (26 Nov) | Opus 5.5 | NEEDS WORK F1–F11 → critical fixes merged in PR #7 (trap-vault compile, clean-clone suite, honest wording) |
 | Hostile re-review of the fixed package (27 Nov) | Opus 5.5 | NEEDS WORK F1–F10 → fixes applied in this write-up (hook v1 schema, label honesty, privacy scrub, English UI strings) |
 | Hostile re-check of the synced package (27 Nov) | Opus 5.5 | NEEDS WORK → text fixes applied (README aligned with the corrected description, 977 figure qualified, video errata note added); two claims rejected by the referee (the negative controls are 26 entries; the referee name in the docs is the agent's, not the owner's) |
+| Hostile verification pass, same session (27 Nov) | Opus 5.5 | Almost all findings FIXED; B and D accepted as resolved; one new blocker ("human referee" wording — the referee is an agent) → fixed with formulation (a): the referee agent (jack) runs the probes, the human owner approves every submission |
 | MiniPerp test (persona check) | — | Steering + persona verified working |
 
 Full detail of each review: `docs/kiro-crew-review-2026-11-*.md`
@@ -82,14 +83,14 @@ as code constants): **TERBUKTI** = proven, **KANDIDAT** = candidate,
 with an adversarial Node harness over cases it invents; jack verifies
 every Kiro claim against the ORIGINAL pipeline code via probes before
 adopting it — claims that turn out to be stub artifacts (Kiro tested a
-replica, not the real code) are rejected and documented. This pattern is
+replica, not the real code) are rejected and documented. The referee is jack, an AI agent — not the owner and not Kiro; the human owner approves every external submission, and the tool itself never submits. This pattern is
 what keeps 26 detectors at 977 tests (960 passed + 17 skipped in a
 clean clone) with no new false positives on the real corpus.
 
 What Kiro produced directly: the steering files, the spec set, the
 hook, and — through the crew reviews — the calibration decisions
 behind every detector. Implementation code (scaffold, pipeline, tests,
-fork PoCs) was written locally against those specs.
+local Foundry PoCs) was written locally against those specs.
 
 ## MCP servers
 
@@ -114,9 +115,9 @@ as detectors 18/19, 21, 22, and 23 respectively).
 ## Credits
 
 A Kiroween grant of 4,000 credits (expires 31 Dec 2026). Used up to this
-session: **854.12 credits** (remaining 3,145.88; 35 days) — spent only on
+session: **855.15 credits** (remaining 3,144.85; 35 days) — spent only on
 real work (audit passes + cross-reviews), no junk prompts. Kiro was used
 as the adversarial review crew and the spec/steering source; implementation
-(scaffold, pipeline, tests, fork PoCs) was done locally. Tempo since
+(scaffold, pipeline, tests, local Foundry PoCs) was done locally. Tempo since
 12 Nov ≈57 credits/day, below the recomputed line
-(3,145.88 ÷ 35 ≈ 90/day).
+(3,144.85 ÷ 35 ≈ 90/day).
