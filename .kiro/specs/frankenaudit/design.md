@@ -48,7 +48,7 @@ descending, then steering priority class.
 
 ### app/samples/
 Curated sample `.sol` contracts + an `.analysis.json` file containing
-human-curated candidates (ground truth for the judge demo + product
+curated candidates (ground truth for the judge demo + product
 testing). First sample: a small trap contract the team uses for audit
 practice — containing 2–3 real bugs + 1 safe pattern that is often
 false-flagged (a negative control).
@@ -73,9 +73,10 @@ false-flagged (a negative control).
 ## Design decisions
 
 - **Static first, backend later.** Judges must be able to open the URL
-  without a server; Slither is an optional mode, not a demo prerequisite.
-- **Curated ground truth > raw detectors.** The sample report uses human
-  analysis as the reference; the pattern scan is only the initial trigger.
+  without a server; Slither is an offline cross-check, not a demo prerequisite.
+- **Curated ground truth > raw detectors.** The sample report uses the
+  curated crew-and-referee analysis as the reference; the pattern scan
+  is only the initial trigger.
 - **No server state / accounts.** Everything runs in the user's browser.
 - **The Kiro crew is a review layer, not an executor.** Crew output is
   candidate text; the crew does not run target code.
