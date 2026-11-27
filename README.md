@@ -11,8 +11,8 @@ Upload a `.sol` file, run the analysis pipeline,
 and get a report page of **bug-bounty-formatted finding candidates** — not
 verdicts. A pasted contract address is only checked read-only for deployed
 bytecode (`eth_getCode`) — the pipeline itself runs on uploaded source. Every candidate carries a falsifiable hypothesis, state
-preconditions, a severity guess, and a verification checklist for a human
-referee.
+preconditions, a severity guess, and a verification checklist for a referee
+agent.
 
 The stitching ("Frankenstein"):
 
@@ -21,9 +21,9 @@ The stitching ("Frankenstein"):
 2. **Kiro agent crew** — Kiro agents with a bug-bounty persona
    (`.kiro/steering/bug-bounty.md`) read the same code from different angles
    and reviewed the detectors before they shipped; every crew claim is
-   re-verified by a human referee against the real code.
+   re-verified by a referee agent (jack) against the real code.
 3. **Read-only on-chain lookup** — checks whether a pasted address is a
-   deployed contract (`eth_getCode`); the human referee falsifies candidates
+   deployed contract (`eth_getCode`); the referee agent falsifies candidates
    against live state using that check plus each candidate's verification
    checklist. No transactions, no wallet.
 
@@ -83,7 +83,7 @@ frankenaudit/
 - Devpost submission deadline: 5 Dec 2026 05:00 WIB (4 Dec 2026 14:00 PT)
 
 This project NEVER submits bug bounty reports — candidates produced while
-testing the product are handed to a human referee for verification (local Foundry PoC).
+testing the product are handed to a referee agent (jack) for verification (local Foundry PoC). Any external submission is made by the human owner, never by the tool.
 
 ## License
 
