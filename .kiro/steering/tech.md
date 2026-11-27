@@ -7,15 +7,16 @@
   zero build step, no mandatory server.
 - **Analysis pipeline (MVP):** two modes.
   - **Curated sample mode** (always available, no backend): sample
-    contracts + human-curated analysis results; a local pipeline (light
+    contracts + curated analysis results; a local pipeline (light
     pattern scan in JS) flags classic patterns and maps them to the
     candidate format.
-  - **Slither mode** (when available): a small backend / local CLI runs
-    Slither over the uploaded `.sol` file, and the results are normalized
-    into the same candidate format. Slither is NOT included in the repo;
-    it is installed separately (`pip install slither-analyzer`).
-- **On-chain lookup:** read-only via public RPC (eth_call / getCode /
-  getStorageAt). No keys, no transactions.
+  - **Offline Slither cross-check** (not part of the app): Slither is run
+    locally over sample contracts and its output compared against the
+    pipeline's (see `docs/slither-crosscheck-2026-11-13.md`). Slither is
+    NOT included in the repo; it is installed separately
+    (`pip install slither-analyzer`).
+- **On-chain lookup:** read-only via public RPC (eth_getCode).
+  No keys, no transactions.
 - **Kiro agent crew:** Kiro agents (specs in `.kiro/specs/`, steering in
   `.kiro/steering/`) act as code reviewers; their output is candidate text
   that goes into the report. The crew does NOT execute target code and does
