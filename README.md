@@ -7,21 +7,25 @@ built for **Kiroween 2026 (Frankenstein category)**.
 
 ## What this is
 
-Paste a contract address or upload a `.sol` file, run the analysis pipeline,
+Upload a `.sol` file, run the analysis pipeline,
 and get a report page of **bug-bounty-formatted finding candidates** — not
-verdicts. Every candidate carries a falsifiable hypothesis, state
+verdicts. A pasted contract address is only checked read-only for deployed
+bytecode (`eth_getCode`) — the pipeline itself runs on uploaded source. Every candidate carries a falsifiable hypothesis, state
 preconditions, a severity guess, and a verification checklist for a human
 referee.
 
 The stitching ("Frankenstein"):
 
-1. **Slither / static analysis** — automated detectors as the first pass.
+1. **Static analysis** — 26 hand-built pattern detectors, plus an offline
+   Slither cross-check.
 2. **Kiro agent crew** — Kiro agents with a bug-bounty persona
    (`.kiro/steering/bug-bounty.md`) read the same code from different angles
-   and cross-review before a candidate is written into the report.
-3. **Read-only on-chain lookup** — reads live deployment state to falsify
-   candidates that are alive "in code" but dead "in deployment".
-   No transactions, no wallet.
+   and reviewed the detectors before they shipped; every crew claim is
+   re-verified by a human referee against the real code.
+3. **Read-only on-chain lookup** — checks whether a pasted address is a
+   deployed contract (`eth_getCode`); the human referee falsifies candidates
+   against live state using that check plus each candidate's verification
+   checklist. No transactions, no wallet.
 
 ## Principles
 
@@ -42,8 +46,8 @@ python3 -m http.server 8000
 # open http://localhost:8000
 ```
 
-The curated sample mode runs fully in the browser. Slither mode needs
-`slither-analyzer` installed separately (`pip install slither-analyzer`) —
+The curated sample mode runs fully in the browser. The offline Slither
+cross-check needs `slither-analyzer` installed separately (`pip install slither-analyzer`) —
 see `.kiro/specs/frankenaudit/design.md`.
 
 ## Structure
@@ -56,6 +60,8 @@ frankenaudit/
     hooks/           # Kiro automation hooks
   app/               # static web app (MVP)
     samples/         # curated sample .sol contracts + their analyses
+  tests/             # Node test suite (tests/run-m2-tests.js)
+  poc/               # local Foundry PoCs for the trap contract
   docs/              # design notes & decisions
   LICENSE            # MIT
 ```
@@ -64,7 +70,8 @@ frankenaudit/
 
 - M1 scaffold — done 13 Nov 2026
 - M2 MVP pipeline — done: 26 pattern detectors + 30 expected candidates,
-  977/977 tests passing
+  977 tests (960 passed + 17 skipped in a clean clone — the skipped checks
+  need the private real-world corpus)
 - M2.5 Intake & Gate — done: bug-bounty program scoring (0–100) with
   LAYAK / KONFIRMASI / TOLAK gate verdicts
 
