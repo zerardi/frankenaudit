@@ -11,7 +11,7 @@ FrankenAudit
 
 ## Tagline (≤ 120 characters, draft)
 
-Smart-contract audit assistant: static analysis + Kiro crew + on-chain checks, producing falsifiable candidates.
+Smart-contract audit assistant: static analysis + Kiro crew + on-chain lookup, producing falsifiable candidates.
 
 ## Description (draft)
 
@@ -21,7 +21,7 @@ FrankenAudit is an open-source audit assistant for beginner bug-bounty
 hunters. Upload a `.sol` file, run the pipeline, and get a report page of
 **bug-bounty-formatted candidates** — not verdicts. Every candidate carries
 a falsifiable hypothesis, the on-chain preconditions that would make it
-real, a severity guess, and a verification checklist for a human referee.
+real, a severity guess, and a verification checklist for a referee agent.
 A pasted contract address is only checked read-only for deployed bytecode
 (see below) — the pipeline itself runs on uploaded source.
 
@@ -43,11 +43,11 @@ It is stitched ("Frankenstein") from three parts:
 2. **Kiro agent crew** — Kiro agents running under a repo-defined bug-bounty
    persona (`.kiro/steering/bug-bounty.md`) read the same code from
    different angles and reviewed detectors before they shipped.
-   Every crew claim is re-verified by a human referee against the real
+   Every crew claim is re-verified by a referee agent (jack) against the real
    code before it becomes a calibration.
 3. **Read-only on-chain lookup** — the app checks whether a pasted address
    is a deployed contract (`eth_getCode`, read-only). It does not fetch
-   source and does not run the pipeline on an address; the human referee
+   source and does not run the pipeline on an address; the referee agent
    falsifies candidates against live state using the app's bytecode check
    plus each candidate's verification checklist. No transactions, no
    wallet.
@@ -79,8 +79,8 @@ it in a browser.
   Cronos zkEVM, LCROBridge, Resupply, EFP, Somm — Veno counted twice,
   once per chain; counts in `docs/hunting-summary.md`): the pipeline
   reproduces the pattern classes behind real candidates the Kiro crew had
-  found by hand (each candidate's own status — submitted, refuted, or
-  latent — is recorded in the sample data and the hunting log) —
+  found by hand (each candidate's own status — submitted by the human hunter,
+  refuted, or latent — is recorded in the sample data and the hunting log) —
   commented-out guards, enum shifts,
   oracle passthrough, eth-locked receive, permissionless dispatchers,
   empty-sublist consensus proofs, JIT reward-accrual sandwiching,
@@ -119,8 +119,8 @@ inside a tool a beginner can actually run.
   reverted call is not.
 - Preview numbers lie; only the delivery mechanism (and a local PoC)
   proves a finding.
-- Most "findings" die on live state — that is why the on-chain lookup
-  exists.
+- Most "findings" die on live state — that is why every candidate
+  carries a live-state verification checklist.
 - A detector is only as good as its referee: every Kiro crew verdict
   is attacked before it is adopted, and several "proven" claims turned
   out to be stub artifacts.
@@ -132,7 +132,7 @@ inside a tool a beginner can actually run.
 - Comments fool pattern matchers (a `// totalSupply` comment once
   flagged a division bug that did not exist).
 - Keeping the Kiro crew's verdicts honest: every crew claim is
-  re-checked by a human referee before it becomes a candidate.
+  re-checked by a referee agent before it becomes a candidate.
 - Cross-file reasoning (dead config read in another file, wrappers,
   chained import aliases) needed a project-level pass on top of
   per-file detectors.
@@ -150,7 +150,7 @@ prints the skip count). Slither cross-check needs
 ## Video errata (v3)
 
 The public demo video (v3, https://www.youtube.com/watch?v=AtwaC5bD6XU,
-177 s) is final and will not be re-recorded. Four narration lines predate
+177 s) is final and will not be re-recorded. Some narration lines predate
 the corrected texts above; read them as corrected here:
 
 - Shot 2: a pasted address gets a read-only bytecode check only — the
@@ -159,12 +159,19 @@ the corrected texts above; read them as corrected here:
   candidates.
 - Shot 3: setOwner is High, not Critical; "a fork proof-of-concept" =
   a local Foundry proof-of-concept.
+- Shot 4: "kill candidates that exist in code but are dead on-chain" =
+  the referee agent falsifies candidates against live state using the
+  bytecode check plus each candidate's verification checklist; the app
+  itself only checks that an address is a deployed contract.
 - Shot 5: "fork-level proof-of-concept" = local Foundry proof-of-concept
   (no chain fork).
 - Shot 6: "everything is driven by Kiro" = Kiro was the review crew
   (steering, specs, hooks, adversarial detector reviews); implementation
   was done locally. "Nine hundred seventy-seven tests, all passing" =
   977 tests: 960 passed + 17 skipped in a clean clone.
+- Shot 6: "found twelve issues" = the crew raised 12 findings on the
+  newest detector; 11 were proven and fixed, 1 was rejected as
+  intentional.
 
 The screen capture was recorded on 26 Nov 2026 from the live app;
 wording-only UI text fixes landed on 27 Nov (no layout or flow changes).
