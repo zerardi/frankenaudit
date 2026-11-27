@@ -13,11 +13,12 @@ function check(name, cond, extra) {
   else { fail++; console.log("FAIL  " + name + (extra ? " — " + extra : "")); }
 }
 // Tes korpus eksternal (work/...) dilewati bila file tidak ada (clean clone):
-// skipCheck mendaftarkan cek sebagai lolos-vakum + menghitungnya, supaya
-// suite tetap keluar 0 dan ringkasan jujur menyebut jumlah yang dilewati.
+// skipCheck hanya menghitungnya sebagai dilewati (BUKAN lolos), supaya
+// ringkasan jujur: yang berjalan saja yang dihitung lolos.
 function skipCheck(name, reason) {
   skipped++;
-  check(name + " (dilewati — korpus eksternal tidak ada)", true, reason);
+  console.log("SKIP  " + name + " (dilewati — korpus eksternal tidak ada)"
+    + (reason ? " — " + reason : ""));
 }
 
 const SAMPLES = path.join(__dirname, "..", "app", "samples");
@@ -3484,11 +3485,11 @@ check("31k gate paused → KONFIRMASI",
 // 31l. Routing: permukaan → detektor + antrean + baseline.
 const r31l = routeProgram(baseProg({ surfaces: ["evm-solidity", "defi-lending"],
   queue: "cronos-zkevm", baseline: "GMX v1" }));
-check("31l route evm-solidity → all-17 + antrean + baseline",
-  r31l.detectors === "all-17" && r31l.queue === "cronos-zkevm" && r31l.baseline === "GMX v1",
+check("31l route evm-solidity → all-26 + antrean + baseline",
+  r31l.detectors === "all-26" && r31l.queue === "cronos-zkevm" && r31l.baseline === "GMX v1",
   JSON.stringify(r31l));
 const r31l2 = routeProgram(baseProg({ surfaces: ["bridge"], queue: "x" }));
-check("31l route bridge → detektor bridge (tanpa all-17)",
+check("31l route bridge → detektor bridge (tanpa all-26)",
   Array.isArray(r31l2.detectors) && r31l2.detectors.includes("eth-locked-receive")
   && r31l2.detectors.includes("tx-origin"),
   JSON.stringify(r31l2.detectors));
