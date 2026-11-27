@@ -1,10 +1,9 @@
-# FrankenAudit — Devpost description (DRAFT, updated session #57, 23 Nov 2026)
+# FrankenAudit — Devpost description (updated 27 Nov 2026)
 
-> Draft to fill into Devpost draft 1298511 (M5). English (the judges'
-> language). Status: FINAL (26 Nov 2026, corrected after the hostile
-> pass) — Devpost draft 1298511 was filled 26 Nov with the previous
-> version; re-fill with this version before submit (27 Nov).
-> Final click needs the owner's approval.
+> Text for Devpost draft 1298511 (M5). English (the judges' language).
+> Status: FINAL (27 Nov 2026, corrected after the hostile re-review and
+> re-check) — Devpost draft 1298511 was re-filled with this version on
+> 27 Nov 2026. Final click needs the owner's approval.
 
 ## Project name
 
@@ -41,7 +40,7 @@ It is stitched ("Frankenstein") from three parts:
    reward-accrual sandwich, refund-locked middleware, variant branch
    without payload consume, guard-asymmetry nav readers, and
    unbounded-loop inflatable-set accounting, plus an offline Slither cross-check (see `docs/slither-crosscheck-2026-11-13.md`).
-2. **Kiro agent crew** — Kiro agents running under a planted bug-bounty
+2. **Kiro agent crew** — Kiro agents running under a repo-defined bug-bounty
    persona (`.kiro/steering/bug-bounty.md`) read the same code from
    different angles and reviewed detectors before they shipped.
    Every crew claim is re-verified by a human referee against the real
@@ -69,16 +68,20 @@ proof-of-concept before anyone calls it a bug. That is the same
 discipline professional auditors use — packaged so a beginner can run
 it in a browser.
 
-**What we proved while building it (dogfooding)**
+**What we tested while building it (dogfooding)**
 
-- A curated trap contract with 30 expected candidates: the pipeline finds all
-  30, with 977 automated tests passing (960 in a clean clone; 17 skipped —
-  they need the private real-world corpus, see `docs/hunting-summary.md`).
+- A curated trap contract (regression fixture) with 30 expected candidates:
+  the pipeline finds all 30, with 977 automated tests (960 passed in a
+  clean clone; 17 skipped — they need the private real-world corpus, see
+  `docs/hunting-summary.md`).
 - Live hunting runs as product testing across 11 real surfaces
   (Fulcrom, Amply, RAAC, Hyperbridge, Flow, Veno on Ethereum and
   Cronos zkEVM, LCROBridge, Resupply, EFP, Somm — Veno counted twice,
   once per chain; counts in `docs/hunting-summary.md`): the pipeline
-  reproduces real finding classes the Kiro crew had found by hand — commented-out guards, enum shifts,
+  reproduces the pattern classes behind real candidates the Kiro crew had
+  found by hand (each candidate's own status — submitted, refuted, or
+  latent — is recorded in the sample data and the hunting log) —
+  commented-out guards, enum shifts,
   oracle passthrough, eth-locked receive, permissionless dispatchers,
   empty-sublist consensus proofs, JIT reward-accrual sandwiching,
   refund-locked bridge middleware, unconsumed variant payloads, and
@@ -91,20 +94,23 @@ it in a browser.
 
 **Built with Kiro**
 
-See `kiro-usage-writeup.md` (Kiro usage write-up) in this repo.
+See `docs/kiro-usage-writeup.md` in this repo — the same text is pasted
+in full into this submission's "Additional info" field.
 
 **What's next**
 
-- Code freeze 24 Nov 2026; public repo + live demo URL 25 Nov 2026
-  (done — https://zerardi.github.io/frankenaudit/).
-- Video demo < 3 min: see `video-script.md` (voice-over recorded;
-  final screen capture from the live English UI).
-- Submit target 27 Nov 2026 (final click needs owner approval).
+- Two-hop and cross-file taint tracking for the value-send and
+  commented-out-check detectors (documented limits today).
+- More curated samples beyond TrapVault, including a negative-only pack.
+- Intake & Gate: open-internet program discovery (today it scores a
+  known list of programs).
+- The demo video stays v3 (public since 26 Nov 2026); its narration
+  errata are listed in the "Video errata (v3)" section below.
 
 ## Inspiration (draft, 1–2 sentences)
 
 Beginner bounty hunters get scanner noise, not findings. We wanted the
-auditor's discipline — hypothesis first, proof on a fork, verdict last —
+auditor's discipline — hypothesis first, proof in a local PoC, verdict last —
 inside a tool a beginner can actually run.
 
 ## What we learned (draft)
@@ -133,12 +139,35 @@ inside a tool a beginner can actually run.
 
 ## How to run (draft)
 
-Static app — open `index.html` or serve the `app/` folder. Tests:
+Static app — serve the `app/` folder (e.g. `python3 -m http.server`
+inside `app/`); opening `index.html` via file:// breaks the sample fetch. Tests:
 `node tests/run-m2-tests.js` (977/977 with the full corpus; 960 passed +
 17 skipped in a clean clone — the skipped checks need the private
 real-world corpus under `work/`, which is not in the repo; the suite
 prints the skip count). Slither cross-check needs
 `slither-analyzer` + `solc` (see `docs/slither-crosscheck-2026-11-13.md`).
+
+## Video errata (v3)
+
+The public demo video (v3, https://www.youtube.com/watch?v=AtwaC5bD6XU,
+177 s) is final and will not be re-recorded. Four narration lines predate
+the corrected texts above; read them as corrected here:
+
+- Shot 2: a pasted address gets a read-only bytecode check only — the
+  pipeline runs on uploaded source; Slither is an offline cross-check,
+  not part of a pipeline run; "thirty planted bugs" = thirty expected
+  candidates.
+- Shot 3: setOwner is High, not Critical; "a fork proof-of-concept" =
+  a local Foundry proof-of-concept.
+- Shot 5: "fork-level proof-of-concept" = local Foundry proof-of-concept
+  (no chain fork).
+- Shot 6: "everything is driven by Kiro" = Kiro was the review crew
+  (steering, specs, hooks, adversarial detector reviews); implementation
+  was done locally. "Nine hundred seventy-seven tests, all passing" =
+  977 tests: 960 passed + 17 skipped in a clean clone.
+
+The screen capture was recorded on 26 Nov 2026 from the live app;
+wording-only UI text fixes landed on 27 Nov (no layout or flow changes).
 
 ## License
 
