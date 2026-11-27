@@ -24,7 +24,7 @@
         <option value="">— pick a sample —</option>
       </select>
     </label>
-    <label>or paste a contract address (EVM)
+    <label>or paste a contract address (EVM) — bytecode check only (eth_getCode); the pipeline runs on uploaded source
       <input id="address-input" type="text" placeholder="0x…" spellcheck="false">
     </label>
     <label>chain for on-chain lookup (read-only eth_getCode)
@@ -73,7 +73,7 @@
 
 <footer>
   <p>FrankenAudit — a Kiroween 2026 project (Frankenstein category). MIT License.
-     Never touches wallets, private keys, or mainnet.</p>
+     Never sends transactions; never touches wallets or private keys.</p>
 </footer>
 
 <script src="pipeline.js"></script>
