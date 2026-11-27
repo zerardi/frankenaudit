@@ -77,5 +77,5 @@ Execution checklist (tick `[x]` when done + record the date in STATUS.md).
 
 ## M5 — Fill Devpost draft 1298511
 
-- [x] Fill the draft from the prepared texts — DONE 27 Nov 2026 (refresh: video v3 + corrected texts + credits 854.12; verified by reload)
+- [x] Fill the draft from the prepared texts — DONE 27 Nov 2026 (refresh: video v3 + corrected texts + credits 855.15; verified by reload)
 - [ ] Final submit ONLY with the owner's explicit approval in chat
