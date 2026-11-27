@@ -1,15 +1,15 @@
-# FrankenAudit — How we used Kiro (DRAFT Kiro usage write-up)
+# FrankenAudit — How we used Kiro
 
-> Draft for the "Built with Kiro" section of Devpost 1298511 (M5).
-> Status: FINAL (26 Nov 2026, corrected after the hostile pass) —
-> Devpost draft 1298511 was filled 26 Nov with the previous version;
-> re-fill with this version before submit (27 Nov).
-> Credit figures as of 27 Nov 2026 10:17 WIB: used 851.31 / 4,000
-> (remaining 3,148.69; 36 days).
+> Text for the "Built with Kiro" / Additional info field of Devpost
+> 1298511 (M5). Status: FINAL (27 Nov 2026, corrected after the hostile
+> re-review and re-check) — Devpost draft 1298511 was re-filled with
+> this version on 27 Nov 2026.
+> Credit figures as of 27 Nov 2026 15:30 WIB: used 854.12 / 4,000
+> (remaining 3,145.88; 35 days).
 
 ## Steering (`.kiro/steering/`)
 
-- **`bug-bounty.md`** — the bug-bounty hunter persona planted in Kiro:
+- **`bug-bounty.md`** — the bug-bounty hunter persona defined in the repo for Kiro:
   candidate-not-verdict, falsifiable hypotheses, a severity gate of
   Medium and up, a fork PoC before any claim, no submission without human
   approval. This is the same "brain" our daily audit sessions use, brought
@@ -39,13 +39,14 @@ There is no separate custom-agent file — the crew is **Kiro sessions with
 the same bug-bounty.md steering, run in different roles** (wide pass →
 final pass → cross-check), matching how our team works. The crew's
 standard model: **Claude Opus 5.5, selected explicitly at the start of
-every pass** (the model picker once drifted on its own to Opus 4.8 —
-more expensive — so the actual model is recorded every session).
+a pass** (one early pass ran on Auto, and the model picker once drifted
+on its own to Opus 4.8 — more expensive — so the actual model is
+recorded every session).
 
 | Pass | Model | Result |
 | --- | --- | --- |
 | Audit of 18 Amply files (Cronos zkEVM) | Auto | 7 candidates AMP-01…AMP-07 (afternoon BB session 13 Nov; delta 4.91 credits) |
-| Cross-review of trap-vault vs ground truth | Opus 5.5 | 3/7 CONFIRMED, 2 raised to Critical (setOwner, payFee); 4 downgraded with reasons; 4 new bugs the pipeline had missed (findings A–D) → 2 became new detectors (replay-signature, share-accounting) |
+| Cross-review of trap-vault vs ground truth | Opus 5.5 | 3/7 CONFIRMED, 2 raised to Critical (setOwner, payFee — the referee later set both to High in the ground truth); 4 downgraded with reasons; 4 new bugs the pipeline had missed (findings A–D) → 2 became new detectors (replay-signature, share-accounting) |
 | Review of detectors 13/14 (oracle passthrough, free-mem-pointer) | Opus 5.5 | 5/5 CONFIRMED + guard/coverage calibration |
 | Review of detector 15 (eth-locked receive) | Opus 5.5 | 26 adversarial cases → calibration v3/v3.1 (ETH-exit idioms, proxy, test paths) |
 | Review of detector 16 (vacuous identity check) | Opus 5.5 | v1 correct 6/30 → calibration v2/v2.1 (tail-scoped gate, polarity) |
@@ -67,6 +68,7 @@ more expensive — so the actual model is recorded every session).
 | Review of detector 26 (unbounded-loop inflatable-set accounting) | Opus 5.5 | NEEDS WORK, 58 cases (26 correct, 12 FP, 20 FN) + 12 findings F1–F12 → referee calibration R26: 11/12 PROVEN + fixed (F10 rejected — sybil, intentional) → 33 tests in Section 68b, suite 977/977 |
 | Hostile review of the final submission package (26 Nov) | Opus 5.5 | NEEDS WORK F1–F11 → critical fixes merged in PR #7 (trap-vault compile, clean-clone suite, honest wording) |
 | Hostile re-review of the fixed package (27 Nov) | Opus 5.5 | NEEDS WORK F1–F10 → fixes applied in this write-up (hook v1 schema, label honesty, privacy scrub, English UI strings) |
+| Hostile re-check of the synced package (27 Nov) | Opus 5.5 | NEEDS WORK → text fixes applied (README aligned with the corrected description, 977 figure qualified, video errata note added); two claims rejected by the referee (the negative controls are 26 entries; the referee name in the docs is the agent's, not the owner's) |
 | MiniPerp test (persona check) | — | Steering + persona verified working |
 
 Full detail of each review: `docs/kiro-crew-review-2026-11-*.md`
@@ -81,8 +83,13 @@ with an adversarial Node harness over cases it invents; jack verifies
 every Kiro claim against the ORIGINAL pipeline code via probes before
 adopting it — claims that turn out to be stub artifacts (Kiro tested a
 replica, not the real code) are rejected and documented. This pattern is
-what keeps 26 detectors at 977/977 tests with no new false positives on
-the real corpus.
+what keeps 26 detectors at 977 tests (960 passed + 17 skipped in a
+clean clone) with no new false positives on the real corpus.
+
+What Kiro produced directly: the steering files, the spec set, the
+hook, and — through the crew reviews — the calibration decisions
+behind every detector. Implementation code (scaffold, pipeline, tests,
+fork PoCs) was written locally against those specs.
 
 ## MCP servers
 
@@ -94,7 +101,7 @@ ask: there is no MCP claim in this project.
 
 The Frankenstein build sessions also used Kiro as **product testing**:
 Kiro audit passes over real bug-bounty targets (Amply, RAAC, Fulcrom,
-Hyperbridge, Flow, Veno, Resupply, EFP, Somm) are the pipeline's training
+Hyperbridge, Flow, Veno, LCROBridge, Resupply, EFP, Somm) are the pipeline's training
 material — Kiro candidates became ground truth for measuring pipeline
 recall (0/7 → 4/7 over the Amply candidates after the commented-out-check,
 commented-out-function, enum-shift, and eth-locked-receive detectors;
@@ -107,9 +114,9 @@ as detectors 18/19, 21, 22, and 23 respectively).
 ## Credits
 
 A Kiroween grant of 4,000 credits (expires 31 Dec 2026). Used up to this
-session: **851.31 credits** (remaining 3,148.69; 36 days) — spent only on
+session: **854.12 credits** (remaining 3,145.88; 35 days) — spent only on
 real work (audit passes + cross-reviews), no junk prompts. Kiro was used
 as the adversarial review crew and the spec/steering source; implementation
 (scaffold, pipeline, tests, fork PoCs) was done locally. Tempo since
 12 Nov ≈57 credits/day, below the recomputed line
-(3,148.69 ÷ 36 ≈ 87/day).
+(3,145.88 ÷ 35 ≈ 90/day).
