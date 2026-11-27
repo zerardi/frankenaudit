@@ -4,7 +4,6 @@ Date: 2026-11-20 (Frankenstein session #42, 12:38 WIB).
 Detector: `variant-branch-no-payload-consume` (class L-1 Hyperbridge
 Codec.DecodeHeader — Info/design, NOT a submission candidate).
 Kiro pass: NEW session 40d58610-080d-44ca-86cf-44abc0f0df6f,
-https://app.kiro.dev/session/40d58610-080d-44ca-86cf-44abc0f0df6f,
 model Claude Opus 5.5 explicitly set — with NO refusal, with NO
 MODEL_TIDAK_SESUAI flag. Session footer 3.52 credits (est., not yet posted at
 check time); dashboard 348.11/4,000 before the pass. Google SSO login with no

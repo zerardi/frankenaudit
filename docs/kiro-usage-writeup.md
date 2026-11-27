@@ -4,8 +4,8 @@
 > Status: FINAL (26 Nov 2026, corrected after the hostile pass) —
 > Devpost draft 1298511 was filled 26 Nov with the previous version;
 > re-fill with this version before submit (27 Nov).
-> Credit figures as of 26 Nov 2026 08:53 WIB: used 799.34 / 4,000
-> (remaining 3,200.66; 37 days).
+> Credit figures as of 27 Nov 2026 10:17 WIB: used 851.31 / 4,000
+> (remaining 3,148.69; 36 days).
 
 ## Steering (`.kiro/steering/`)
 
@@ -28,7 +28,7 @@
 
 ## Hooks (`.kiro/hooks/`)
 
-- **`candidate-format-check.json`** — a candidate-format hook: every
+- **`candidate-format-check.json`** — a candidate-format hook (v1 schema): every
   candidate written into a report must carry a location (file:function),
   a hypothesis, preconditions, impact, and a verification method. This is
   the format the pipeline (`report.js`) and the hunting reports use.
@@ -65,6 +65,8 @@ more expensive — so the actual model is recorded every session).
 | Calibration R-COF-3 + R-COF-3a over a Kiro review (commented-out-check: live `if + revert` counterpart) | Opus 5.5 | NEEDS WORK 35 cases + 12 findings → F2/F3/F5/F6/F9/F11 proven + fixed (the literal rule REMOVED; strings masked; revert arguments not counted; else-revert + live require recognized); F1 rejected (harness artifact); F8 per conservative design; F4/F10/F12 limits documented → 9 tests in Section 65 + 9 tests in Section 66, suite 899/899 |
 | Review of detector 25 (guard-asymmetry nav readers) | Opus 5.5 | NEEDS WORK, 11 findings F1–F11 → referee calibration R25: 11/11 PROVEN + fixed (guard propagation through closures, guard via helper/modifier *reentr*, matchAll, uint/getter/member guard forms, trap-name rejection, direct state reads, member calls ignored, overload multimap, cross-span resolution, paren-balanced if-revert scanner, signature paren stripping) → 13 tests in Section 67 + 20 tests in Section 67b, suite 932/932 |
 | Review of detector 26 (unbounded-loop inflatable-set accounting) | Opus 5.5 | NEEDS WORK, 58 cases (26 correct, 12 FP, 20 FN) + 12 findings F1–F12 → referee calibration R26: 11/12 PROVEN + fixed (F10 rejected — sybil, intentional) → 33 tests in Section 68b, suite 977/977 |
+| Hostile review of the final submission package (26 Nov) | Opus 5.5 | NEEDS WORK F1–F11 → critical fixes merged in PR #7 (trap-vault compile, clean-clone suite, honest wording) |
+| Hostile re-review of the fixed package (27 Nov) | Opus 5.5 | NEEDS WORK F1–F10 → fixes applied in this write-up (hook v1 schema, label honesty, privacy scrub, English UI strings) |
 | MiniPerp test (persona check) | — | Steering + persona verified working |
 
 Full detail of each review: `docs/kiro-crew-review-2026-11-*.md`
@@ -99,15 +101,15 @@ commented-out-function, enum-shift, and eth-locked-receive detectors;
 the 0/7 baseline is per our internal hunting logs, see
 `docs/hunting-summary.md`), and
 Kiro findings that escaped the pipeline became the next detector backlog
-(the H3, K-1, VENO-C1, VENO-C2 classes — all now caught by the pipeline
-as detectors 18/19, 21, 22, 23).
+(the H3, K-1, VENO-C2, VENO-C1 classes — caught by the pipeline
+as detectors 18/19, 21, 22, and 23 respectively).
 
 ## Credits
 
 A Kiroween grant of 4,000 credits (expires 31 Dec 2026). Used up to this
-session: **799.34 credits** (remaining 3,200.66; 37 days) — spent only on
+session: **851.31 credits** (remaining 3,148.69; 36 days) — spent only on
 real work (audit passes + cross-reviews), no junk prompts. Kiro was used
 as the adversarial review crew and the spec/steering source; implementation
 (scaffold, pipeline, tests, fork PoCs) was done locally. Tempo since
 12 Nov ≈57 credits/day, below the recomputed line
-(3,200.66 ÷ 37 ≈ 86/day).
+(3,148.69 ÷ 36 ≈ 87/day).

@@ -2,8 +2,10 @@
 
 Date: 2026-11-19 (Frankenstein session #37, 16:38 WIB).
 Detector: `refund-locked-middleware` (VENO-C1 BridgeMiddleware zkCRO class).
+> Status note (27 Nov 2026): VENO-C1 remains a LATENT candidate — mock PoC only,
+> 0 victims, never submitted; a Medium pays $0 on this program. The trap fixture
+> reproduces the pattern class (synthetic), not the live contract.
 Kiro pass: NEW session e10bdb74-d30a-4e3a-9315-d7a13d02a61e,
-https://app.kiro.dev/session/e10bdb74-d30a-4e3a-9315-d7a13d02a61e,
 model Claude Opus 5.5 set explicitly — NO refusal, NO
 MODEL_TIDAK_SESUAI flag. Session footer 7,95 credits; dashboard 325,8 → 333,75.
 Google SSO login without obstacles (browser task 2b3b400e, 16:47–16:57 WIB).

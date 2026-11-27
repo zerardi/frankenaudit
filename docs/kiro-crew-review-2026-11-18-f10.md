@@ -1,10 +1,10 @@
 # Kiro crew review of the F10 one-hop calibration + R18.3/F10.1 + referee calibration R10.2
 
-- Kiro session: "Audit F10 One-Hop Dispatcher" — https://app.kiro.dev/session/3936e049-210e-4bea-a8ae-28eaf9f553b2
+- Kiro session: "Audit F10 One-Hop Dispatcher"
 - Time: 18 Nov 2026, 01:08–01:21 WIB (browser task 8c84206f-ce7b-5227-924f-30a9a4d4a736, 13 min).
 - Model: **Claude Opus 5.5 explicit, no refusal, no MODEL_TIDAK_SESUAI flag** (UI footer remained Opus 5.5; no "refused; answered by Opus 4.8").
 - Credits: dashboard 182,29 → **185,28/4.000, delta 2,99** (footer "Est. Credits Used: 2.99, Elapsed Time: 2m 37s" — matches).
-- Login: account already signed in as jjijundaq@gmail.com; no Google click, no password/2FA.
+- Login: account already signed in as the Arslan account; no Google click, no password/2FA.
 - Kiro's method: Node harness over the detector (26 cases per the assignment + new findings F1–F11, each proven by harness execution).
 - Kiro's verdict: **NEEDS WORK** (26/26 cases PASS, 8 new findings claimed TERBUKTI).
 - Browser note: reading the final page triggered a system security notice over tool results; the browser agent did not follow any instructions from the page contents and did not run/download/apply anything from it. No impact on this task.

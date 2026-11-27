@@ -1,10 +1,10 @@
 # Kiro crew review of detectors 18/19 + referee calibration R18.1/R19.1
 
-- Kiro session: "Audit Detectors 18-19 H3" — https://app.kiro.dev/session/f2ea3494-60f2-4106-8815-96d0b113f925
+- Kiro session: "Audit Detectors 18-19 H3"
 - Time: 17 Nov 2026, 20:51–21:05 WIB (browser task faf2eceb, 14 min).
 - Model: **Claude Opus 5.5 explicit, with no refusal, with no MODEL_TIDAK_SESUAI flag** (the UI footer remained Opus 5.5; there was no "refused; answered by Opus 4.8").
 - Credits: dashboard 178.92 → **182.29/4,000, delta 3.37** (footer "Est. Credits Used: 3.37, Elapsed Time: 3m 44s" — matches).
-- Login: the account was already signed in as jjijundaq@gmail.com; with no Google click, with no password/2FA.
+- Login: the account was already signed in as the Arslan account; with no Google click, with no password/2FA.
 - Kiro's method: a Node harness over the detectors (33 cases according to its answer).
 - Kiro's verdict: **NEEDS WORK** for both detectors (F1–F20).
 

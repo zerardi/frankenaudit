@@ -1,7 +1,7 @@
 # Kiro crew review of R19.5 cast-assignment D19 — referee calibration R19.5a, session #34, 19 Nov 2026
 
 - **Kiro session:** NEW "Audit R19.5 cast-assignment D19", ID 9bff4797-f78c-45dd-b4a9-65516426b201
-  (https://app.kiro.dev/session/9bff4797-f78c-45dd-b4a9-65516426b201)
+ 
 - **Model:** Claude Opus 5.5 selected explicitly, confirmed by the session footer — no MODEL_TIDAK_SESUAI flag.
 - **Browser task:** 3102abed-3c65-5ec9-a49c-fab776eff10a, 04:59–05:07 WIB (±8 min, agent answer 3 min).
   Login: Google SSO Arslan with no password/2FA/account picker (the Google session was still active).

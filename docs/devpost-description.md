@@ -4,7 +4,7 @@
 > language). Status: FINAL (26 Nov 2026, corrected after the hostile
 > pass) — Devpost draft 1298511 was filled 26 Nov with the previous
 > version; re-fill with this version before submit (27 Nov).
-> Final click needs Toufik's approval.
+> Final click needs the owner's approval.
 
 ## Project name
 
@@ -12,9 +12,7 @@ FrankenAudit
 
 ## Tagline (≤ 120 characters, draft)
 
-A stitched-together smart-contract audit assistant: static analysis +
-Kiro agent crew + live on-chain checks, producing falsifiable bug-bounty
-candidates.
+Smart-contract audit assistant: static analysis + Kiro crew + on-chain checks, producing falsifiable candidates.
 
 ## Description (draft)
 
@@ -30,7 +28,7 @@ A pasted contract address is only checked read-only for deployed bytecode
 
 It is stitched ("Frankenstein") from three parts:
 
-1. **Static analysis** — Slither (offline, CLI) plus 25 hand-built pattern
+1. **Static analysis** — 26 hand-built pattern
    detectors and an upstream-diff classifier that labels candidates
    against fork baselines: reentrancy, missing access control, division
    without zero guard, ecrecover without zero check, tx.origin auth,
@@ -38,14 +36,14 @@ It is stitched ("Frankenstein") from three parts:
    check, commented-out function, enum semantic shift, oracle passthrough
    without staleness check, free-memory-pointer without 32-byte rounding,
    eth-locked receive, vacuous identity check, dead config storage,
-   permissionless dispatcher (plus one-hop forwarder), full-balance sweep,
+   permissionless dispatcher, one-hop forwarder, full-balance sweep,
    permissionless value send, empty-sublist proof advancing height, JIT
    reward-accrual sandwich, refund-locked middleware, variant branch
    without payload consume, guard-asymmetry nav readers, and
-   unbounded-loop inflatable-set accounting.
+   unbounded-loop inflatable-set accounting, plus an offline Slither cross-check (see `docs/slither-crosscheck-2026-11-13.md`).
 2. **Kiro agent crew** — Kiro agents running under a planted bug-bounty
    persona (`.kiro/steering/bug-bounty.md`) read the same code from
-   different angles and cross-reviewed each detector before it shipped.
+   different angles and reviewed detectors before they shipped.
    Every crew claim is re-verified by a human referee against the real
    code before it becomes a calibration.
 3. **Read-only on-chain lookup** — the app checks whether a pasted address
@@ -66,14 +64,14 @@ tool hunts where a beginner can actually submit.
 
 New hunters drown in scanner noise and cannot tell a real finding from a
 false positive. FrankenAudit's discipline is *candidate, not verdict*:
-every finding starts as a hypothesis that must survive a fork-level
+every finding starts as a hypothesis that must survive a local Foundry
 proof-of-concept before anyone calls it a bug. That is the same
 discipline professional auditors use — packaged so a beginner can run
 it in a browser.
 
 **What we proved while building it (dogfooding)**
 
-- A curated trap contract with 30 planted bugs: the pipeline finds all
+- A curated trap contract with 30 expected candidates: the pipeline finds all
   30, with 977 automated tests passing (960 in a clean clone; 17 skipped —
   they need the private real-world corpus, see `docs/hunting-summary.md`).
 - Live hunting runs as product testing across 11 real surfaces
@@ -113,7 +111,7 @@ inside a tool a beginner can actually run.
 
 - A readable gate function read differentially is decisive proof; a
   reverted call is not.
-- Preview numbers lie; only the delivery mechanism (and a fork PoC)
+- Preview numbers lie; only the delivery mechanism (and a local PoC)
   proves a finding.
 - Most "findings" die on live state — that is why the on-chain lookup
   exists.

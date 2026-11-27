@@ -9,7 +9,7 @@
 - **Kiro session:** 9bf915c9-a01e-4675-a9bb-b92f0a1c418a ("Audit Bug Bounty Kontrak
   Solidity") — continued, no new chat needed.
 - **Method:** the project-pass code was pasted verbatim (the GitHub main repo does NOT
-  contain this code — only the local repo; the branch push was paused on Toufik's
+  contain this code — only the local repo; the branch push was paused on the owner's
   refusal). Kiro reviewed from the paste + function replicas in its sandbox
   (with network access: cloned the GMX v2 example).
 - **Credits:** dashboard 76.74 → **103.4/4,000 (delta 26.66)**; remaining 3,896.6,

@@ -63,7 +63,7 @@ separates `dropped` from `blacklisted` for this reason.
 | VeChain Stargate (HackenProof) | 34.0 | DROP | scope/status/pool not yet verified — not a blacklist |
 
 Strict mode (the v10 default): Cronos + RAAC → KONFIRMASI (needs human
-confirmation — Cronos was already confirmed by Toufik in chat 12 Nov, the
+confirmation — Cronos was already confirmed by the owner in chat 12 Nov, the
 ACTIVE queue keeps running; RAAC is still in the QUEUE, not confirmed).
 
 ## UI

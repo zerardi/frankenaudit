@@ -1,6 +1,6 @@
 # Kiro crew review of the 25th detector `guard-asymmetry-nav-readers` (D25)
 
-- Kiro session: new, https://app.kiro.dev/session/58f67ca0-a347-4e74-84ae-0ead4e0ded96
+- Kiro session: new
   ("Detect Unguarded NAV Readers in Smart Contracts"), 22 Nov 2026 20:46–20:51 WIB.
 - Model: Claude Opus 5.5 set explicitly, Autonomous OFF — NOT refused,
   no MODEL_TIDAK_SESUAI flag. Credits: 1.49 (session footer = dashboard delta).

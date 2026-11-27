@@ -4,7 +4,6 @@
 
 - Browser task d5e201fa (04:49–05:01 WIB, 11 min). New Kiro session
   "Audit R19.2 ident.balance D19", URL
-  https://app.kiro.dev/session/7e99e3cc-79b4-4fe0-9e3d-12018e54a6e8.
 - Dashboard START 185.28/4,000 (45 days) → END 186.67/4,000; session delta
   **1.39** (footer 0.74 + 0.65). Model: **Opus 5.5 in both turns**,
   without the MODEL_TIDAK_SESUAI flag. Login expired midway,

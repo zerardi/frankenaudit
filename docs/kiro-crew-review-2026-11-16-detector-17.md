@@ -5,7 +5,7 @@
 - **Kiro session:** 9bf915c9-a01e-4675-a9bb-b92f0a1c418a ("Audit Bug Bounty Kontrak Solidity")
 - **Method:** code pasted verbatim (GitHub repo main 8c3c079 does NOT contain
   detectors #15/#16/#17 — they exist only in local repo 225243b..fdbc819; branch
-  push was not possible because push via connector was paused following Toufik's refusal).
+  push was not possible because push via connector was paused following the owner's refusal).
   Kiro ran the review from that paste in its sandbox (with network access:
   shallow clone GMX/Aave/Uniswap).
 - **Credits:** dashboard 58,28 → **76,74/4.000 (delta 18,46)**; remaining 3.923,26,

@@ -1,9 +1,10 @@
 # FrankenAudit — Demo video script (DRAFT, target < 3 minutes)
 
 > Draft script + shot list for the public YouTube demo video (M4).
-> Status: DRAFT — voice-over recorded; screen capture pending the final
-> assembly. Target duration: ±2:55. Language: English (the Devpost
-> judges), with subtitles if needed.
+> Status: FINAL — v3 public on YouTube 26 Nov 2026 23:37 WIB
+> (https://www.youtube.com/watch?v=AtwaC5bD6XU, 177.03 s). Target duration: ±2:55.
+> Language: English (the Devpost judges), with subtitles if needed.
+> v4 corrections (shots 2/3/5/6) pending owner decision — see the section below.
 
 ## Structure (±175 seconds)
 
@@ -19,7 +20,7 @@
 
 ## Production notes
 
-- Shot 6 is NEW (24 Nov 2026, approved by Toufik — from the Kiroween
+- Shot 6 is NEW (24 Nov 2026, approved by the owner — from the Kiroween
   judges' email: the Technological Implementation criterion + "show me
   how you used specs, steering and hooks" + "Kiro surprised you"): the VO
   has ALREADY been recorded 24 Nov 2026 (Helio, `vo-shot6-kiro.mp3`,
@@ -35,3 +36,11 @@
   public).
 - Before recording: make sure the public repo URL is live (it is, since
   25 Nov 2026) and capture from the English UI.
+
+## v4 corrections (27 Nov 2026 hostile re-review — PENDING owner decision)
+
+The v3 audio still carries the lines below. Re-record these shots for v4:
+- Shot 2: "Paste a contract address, or upload a Solidity file. The pipeline runs twenty-six pattern detectors plus Slither — here on a curated trap contract with thirty planted bugs." → "Upload a Solidity file — or paste a contract address for a read-only bytecode check. The pipeline runs twenty-six pattern detectors — here on a curated trap contract with thirty expected candidates." (An address only gets an eth_getCode check; Slither is an offline cross-check, not part of the pipeline run.)
+- Shot 3: "(setOwner, Critical)" → "(setOwner, High)" (the app shows High, not Critical).
+- Shot 5: "fork-level proof-of-concept" → "local Foundry proof-of-concept" (the PoCs run locally in Foundry, no chain fork).
+- Shot 6: "everything is driven by Kiro" → "Kiro drives the review crew" (implementation was done locally; Kiro is the reviewer/crew — see kiro-usage-writeup.md).

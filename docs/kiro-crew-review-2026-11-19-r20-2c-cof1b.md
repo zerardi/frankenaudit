@@ -1,7 +1,7 @@
 # Kiro crew review of R-COF-1 + R20.2 — session #33, 19 Nov 2026
 
 - **Kiro session:** NEW "Audit R-COF-1 + R20.2 Veno", ID bdefe1bb-e454-4ba5-8b16-4534451fbc9d
-  (https://app.kiro.dev/session/bdefe1bb-e454-4ba5-8b16-4534451fbc9d)
+ 
 - **Model:** Claude Opus 5.5 selected explicitly, confirmed in the answer — no MODEL_TIDAK_SESUAI flag.
 - **Browser task:** a5eb3f7f-d22e-5850-80d7-e78a33d6aeeb, 00:53–01:02 WIB (±9 min, agent answer 2m 53s).
   Login: Google SSO Arslan with no password/2FA/account picker (the Google session was still active).

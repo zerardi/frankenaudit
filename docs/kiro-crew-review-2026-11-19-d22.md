@@ -1,7 +1,7 @@
 # Kiro crew review of detector 22 jit-reward-accrual-sandwich (D22) — referee calibration R22, session #36, 19 Nov 2026
 
 - **Kiro session:** NEW "Audit D22 JIT Reward Accrual", ID f4578d1e-60ef-470d-973e-8eb31e3ae8ac
-  (https://app.kiro.dev/session/f4578d1e-60ef-470d-973e-8eb31e3ae8ac)
+ 
 - **Model:** Claude Opus 5.5 explicitly selected in the UI before sending the message (previously Sonnet 5.5);
   Kiro replied "I am Claude Opus 5.5. The session context reports the active model Claude Opus 5.5" —
   with no MODEL_TIDAK_SESUAI flag.
@@ -188,8 +188,8 @@ Identical to pre-calibration — 0 new candidates, 0 new D22 outside Veno:
 | Veno zkEVM | 10 | 0 | 0 |
 
 FA-005 remains: `ybETH_IMPL/src_YbEth.sol` @ `accrueReward`, Medium — pipeline confirmation
-of VENO-C2 (not a new submission candidate; the BB draft already exists, PoC-verified, awaiting
-the hostile pass in the BB session on the afternoon of 19 Nov).
+of VENO-C2 (not a new submission candidate; the BB draft already exists, PoC-verified — hostile review 19 Nov 2026: GUGUR,
+out of scope (dilution exclusion); will not be submitted).
 
 ## Summary of changes (R22)
 

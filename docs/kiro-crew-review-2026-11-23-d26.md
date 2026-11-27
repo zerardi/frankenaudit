@@ -1,6 +1,6 @@
 # Kiro crew review of the 26th detector `unbounded-loop-inflatable-set-accounting` (D26)
 
-- Kiro session: new, https://app.kiro.dev/session/c053d68c-6c89-4487-90d5-ab8341cd94bf
+- Kiro session: new
   ("Review Unbounded Loop Pattern Detector"), 23 Nov 2026 12:53–13:01 WIB.
 - Model: Claude Opus 5.5 set explicitly, Autonomous OFF — NOT rejected,
   no MODEL_TIDAK_SESUAI flag. Credits: 5.13 (session footer = dashboard delta:

@@ -2,7 +2,6 @@
 
 Frankenstein session #46 (continued), 21 Nov 2026. Kiro pass: browser task
 d6ab4fa5, new session "Audit R20.3 swap-output D20"
-(https://app.kiro.dev/session/f443d373-c1c6-43bd-8e48-1bad54678fa6),
 **Opus 5.5 explicit with no refusal — no MODEL_TIDAK_SESUAI flag**,
 Autonomous OFF, 2m 8s, footer 2.12 credits. Dashboard at the start of the pass:
 363.45/4,000 (unchanged since 20 Nov 20:40 WIB); total after the pass

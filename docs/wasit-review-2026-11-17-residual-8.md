@@ -13,7 +13,7 @@ and no chat channel in the cron window to enter credentials.
 The dashboard was briefly readable before the session died: **144.55/4,000 credits, 46
 days remaining, plan 0/50, reset 01/12** — delta 0 this session (no Kiro pass).
 
-**Follow-up needed (not this session's burden):** Toufik needs to
+**Follow-up needed (not this session's burden):** The owner needs to
 log back in to Kiro Web (app.kiro.dev, Arslan Google SSO) — ideally from
 his Chrome PC, the official path for sensitive account actions. Until the login recovers,
 Kiro crew passes (cross-reviews and hunting alike) are DELAYED; the next Frankenstein
