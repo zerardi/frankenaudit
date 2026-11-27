@@ -53,7 +53,7 @@ Execution checklist (tick `[x]` when done + record the date in STATUS.md).
       3/7 CONFIRMED, 2 raised to Critical; findings A–D → detectors
       replay-signature + share-accounting
 
-## M2.5 — HUNTING MODE (active once M2 runs)
+## HUNTING MODE (field use of Intake & Gate, active once M2 runs)
 
 - [x] Run the pipeline over the reputation-queue targets (first Cronos
       zkEVM Smart Contracts; then Hyperbridge / Flow Protocol) — DONE Nov 2026 (see STATUS.md)
@@ -77,5 +77,5 @@ Execution checklist (tick `[x]` when done + record the date in STATUS.md).
 
 ## M5 — Fill Devpost draft 1298511
 
-- [x] Fill the draft from the prepared texts — DONE 27 Nov 2026 (refresh: video v3 + teks terkoreksi + kredit 851,31; terverifikasi reload)
+- [x] Fill the draft from the prepared texts — DONE 27 Nov 2026 (refresh: video v3 + corrected texts + credits 854.12; verified by reload)
 - [ ] Final submit ONLY with the owner's explicit approval in chat
